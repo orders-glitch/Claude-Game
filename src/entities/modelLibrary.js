@@ -13,6 +13,8 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { weaponMesh } from './rig.js';
 
 const BASE = './models/characters/';
+const _v0 = new THREE.Vector3(), _v1 = new THREE.Vector3();
+const _q0 = new THREE.Quaternion(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _q4 = new THREE.Quaternion();
 
 class ModelLibrary {
   constructor() {
@@ -82,16 +84,23 @@ function prepare(gltf, opts) {
   const clips = gltf.animations || [];
   const map = {};
   for (const k of Object.keys(CLIP_PATTERNS)) map[k] = findClip(clips, k);
-  // bones for layering and weapon sockets
+  // bones for layering, weapon sockets and procedural aiming
   let spine = null, handR = null;
-  scene.traverse((o) => {
-    if (!o.isBone) return;
-    if (!spine && /spine|chest|torso/i.test(o.name)) spine = o.name;
-    if (!handR && (/hand.*(r\b|right|_r|\.r)|(right|r_|\.r).*hand|handslot\.?r/i.test(o.name))) handR = o.name;
-  });
+  const bones = [];
+  scene.traverse((o) => { if (o.isBone) bones.push(o); });
+  const byName = (re) => bones.find((b) => re.test(b.name));
+  spine = (byName(/abdomen|spine/i) || byName(/chest|torso/i))?.name || null;
+  const handBone = byName(/^hand[._ ]?r$|hand.*(right|_r\b|\.r\b)|right.*hand|handslot\.?r/i);
+  // rigs without a hand bone: the fingers hang off the forearm
+  const finger = byName(/(index|middle)1?[._ ]?r$/i);
+  handR = handBone?.name || finger?.parent?.name || null;
+  const armR = byName(/^upper_?arm[._ ]?r$|upperarm.*r$|arm[._ ]?r$/i)?.name || null;
+  const foreR = byName(/^lower_?arm[._ ]?r$|forearm.*r$|lowerarm.*r$/i)?.name || null;
+  const armL = byName(/^upper_?arm[._ ]?l$|upperarm.*l$|arm[._ ]?l$/i)?.name || null;
+  const foreL = byName(/^lower_?arm[._ ]?l$|forearm.*l$|lowerarm.*l$/i)?.name || null;
   const upper = new Set();
   if (spine) scene.getObjectByName(spine)?.traverse((o) => upper.add(THREE.PropertyBinding.sanitizeNodeName(o.name)));
-  return { scene, scale, groundY: -box.min.y * scale, clips: map, upper, handR, rotateY: opts.rotateY ?? Math.PI, file: opts.file, hideMeshes: opts.hide || [] };
+  return { scene, scale, groundY: -box.min.y * scale, clips: map, upper, handR, armR, foreR, armL, foreL, rotateY: opts.rotateY ?? Math.PI, file: opts.file, hideMeshes: opts.hide || ['^weapon', 'lute', 'crossbow', 'mug', 'throwable'] };
 }
 
 function splitClip(clip, upper, keepUpper) {
@@ -105,11 +114,12 @@ function splitClip(clip, upper, keepUpper) {
 
 // ---------------------------------------------------------------- per-character instance
 export class GltfRig {
-  constructor(entry) {
+  // entry: prepared model description; prebuilt: an already-assembled unique model (skips cloning)
+  constructor(entry, prebuilt = null) {
     this.entry = entry;
     this.root = new THREE.Group();
     this.root.rotation.order = 'YXZ';
-    const model = SkeletonUtils.clone(entry.scene);
+    const model = prebuilt || SkeletonUtils.clone(entry.scene);
     model.scale.setScalar(entry.scale);
     model.position.y = entry.groundY;
     model.rotation.y = entry.rotateY; // glTF characters face +Z; the game's characters face -Z
@@ -118,8 +128,8 @@ export class GltfRig {
         o.castShadow = true; o.receiveShadow = true;
         if (o.isSkinnedMesh) o.frustumCulled = false;
         // hide weapons/props baked into the character so ours can be shown instead
-        if (entry.hideMeshes.some((re) => new RegExp(re, 'i').test(o.name))) o.visible = false;
       }
+      if (!o.isBone && entry.hideMeshes.some((re) => new RegExp(re, 'i').test(o.name))) o.visible = false;
     });
     this.root.add(model);
     this.model = model;
@@ -127,8 +137,11 @@ export class GltfRig {
     this.socketR = new THREE.Group();
     const hand = entry.handR ? model.getObjectByName(entry.handR) : null;
     if (hand) {
-      // sockets live in hand space; undo the model scale so our metre-sized weapons stay the right size
-      this.socketR.scale.setScalar(1 / entry.scale);
+      // sockets live in hand space; undo the model (and bone) scale so our metre-sized weapons stay the right size
+      hand.updateWorldMatrix(true, false);
+      const ws = new THREE.Vector3(); hand.getWorldScale(ws);
+      this.socketR.scale.setScalar(1 / (ws.x * entry.scale || 1));
+      if (entry.socket) { this.socketR.position.fromArray(entry.socket.pos || [0, 0, 0]); this.socketR.rotation.fromArray(entry.socket.rot || [0, 0, 0]); }
       hand.add(this.socketR);
     }
     this.hasHand = !!hand;
@@ -145,13 +158,21 @@ export class GltfRig {
       this.actions[name] = a;
     };
     const up = entry.upper;
+    const cache = entry._split || (entry._split = new Map());
+    const split = (clip, u, keep) => {
+      if (!clip) return null;
+      const key = clip.uuid + keep;
+      if (!cache.has(key)) cache.set(key, splitClip(clip, u, keep));
+      return cache.get(key);
+    };
+    const splitClipC = split;
     add('idle', C.idle); add('walk', C.walk || C.run); add('run', C.run || C.walk);
-    add('idle_lower', splitClip(C.idle, up, false)); add('walk_lower', splitClip(C.walk || C.run, up, false)); add('run_lower', splitClip(C.run || C.walk, up, false));
-    add('slash', splitClip(C.slash, up, true), true);
-    add('aimPistol', splitClip(C.aimPistol, up, true));
-    add('aimMusket', splitClip(C.aimMusket || C.aimPistol, up, true));
+    add('idle_lower', splitClipC(C.idle, up, false)); add('walk_lower', splitClipC(C.walk || C.run, up, false)); add('run_lower', splitClipC(C.run || C.walk, up, false));
+    add('slash', splitClipC(C.slash, up, true), true);
+    add('aimPistol', splitClipC(C.aimPistol, up, true));
+    add('aimMusket', splitClipC(C.aimMusket || C.aimPistol, up, true));
     add('dig', C.dig);
-    add('hit', splitClip(C.hit, up, true), true);
+    add('hit', splitClipC(C.hit, up, true), true);
     add('death', C.death, true);
     if (this.actions.idle) { this.actions.idle.setEffectiveWeight(1); this.actions.idle.time = Math.random() * this.actions.idle.getClip().duration; }
     this.w = { slash: 0, aimP: 0, aimM: 0, dig: 0, dead: 0 };
@@ -167,7 +188,8 @@ export class GltfRig {
     this.weapon = kind && this.hasHand ? weaponMesh(kind) : null;
     if (this.weapon) {
       // in the socket, point the blade/barrel away from the wrist
-      this.weapon.rotation.set(kind === 'musket' ? 0 : Math.PI, 0, 0);
+      const r = this.entry.weaponRot?.[kind];
+      if (r) this.weapon.rotation.fromArray(r); else this.weapon.rotation.set(kind === 'musket' ? 0 : Math.PI, 0, 0);
       this.socketR.add(this.weapon);
     }
   }
@@ -220,6 +242,40 @@ export class GltfRig {
       A.hit.setEffectiveWeight(st.hitT > 0 ? Math.min(0.7, st.hitT) : 0);
     }
     this.mixer.update(dt);
+
+    // no aim animation in the model: swing the arm(s) to point where the character is looking
+    const needP = st.aim && st.weapon !== 'musket' && !A.aimPistol;
+    const needM = st.aim && st.weapon === 'musket' && !A.aimMusket;
+    this.aimBlend = (this.aimBlend || 0) + ((needP || needM ? 1 : 0) - (this.aimBlend || 0)) * k(12);
+    if (this.aimBlend > 0.01) {
+      this.root.updateMatrixWorld(true);
+      const pitch = -(st.aimPitch || 0) * 0.8;
+      const fwd = new THREE.Vector3(0, Math.sin(pitch), -Math.cos(pitch)).applyQuaternion(this.root.getWorldQuaternion(_q0));
+      this.pointBone(this.entry.armR, fwd, this.aimBlend);
+      this.pointBone(this.entry.foreR, fwd, this.aimBlend);
+      if (needM || this.weaponKind === 'musket') {
+        const side = new THREE.Vector3(-0.35, 0, 0).applyQuaternion(this.root.getWorldQuaternion(_q0));
+        this.pointBone(this.entry.armL, fwd.clone().add(side).normalize(), this.aimBlend);
+        this.pointBone(this.entry.foreL, fwd, this.aimBlend);
+      }
+    }
+  }
+
+  // rotate a bone (in world space) so the direction to its child points along dir
+  pointBone(name, dir, weight) {
+    const b = name && this.model.getObjectByName(name);
+    if (!b || !b.children.length) return;
+    const child = b.children.find((c) => c.isBone) || b.children[0];
+    b.updateWorldMatrix(true, true);
+    const p0 = b.getWorldPosition(_v0), p1 = child.getWorldPosition(_v1);
+    const cur = p1.sub(p0).normalize();
+    const delta = _q1.setFromUnitVectors(cur, dir);
+    const wq = b.getWorldQuaternion(_q2);
+    const target = _q3.copy(delta).multiply(wq);
+    const parentQ = b.parent.getWorldQuaternion(_q4).invert();
+    const local = parentQ.multiply(target);
+    b.quaternion.slerp(local, weight);
+    b.updateWorldMatrix(false, true);
   }
 
   dispose() {

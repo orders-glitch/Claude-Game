@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { LOOKS } from './character.js';
 import { CharacterRig } from './rig.js';
 import { modelLibrary, GltfRig } from './modelLibrary.js';
+import { humans } from './humans.js';
 import { clamp, damp, dampAngle, wrapAngle, rand, pick } from '../core/noise.js';
 
 const GRAV = 22;
@@ -18,8 +19,12 @@ export class Walker {
   constructor(game, look, opts = {}) {
     this.game = game;
     this.look = look;
+    // priority: a model listed for this role in models/characters/manifest.json, then the assembled
+    // realistic humans, then the procedural rig
     const role = modelRole(look.role);
-    this.rig = role ? new GltfRig(modelLibrary.pick(role)) : new CharacterRig(look);
+    if (role) this.rig = new GltfRig(modelLibrary.pick(role));
+    else if (humans.has() && look.role) this.rig = humans.create(look.role);
+    else this.rig = new CharacterRig(look);
     this.root = this.rig.root;
     this.pos = new THREE.Vector3(opts.x || 0, opts.y || 0, opts.z || 0);
     this.yaw = opts.yaw || 0;

@@ -96,26 +96,24 @@ and `Esc` pauses.
 
 ## Character models
 
-Characters are fully rigged skinned meshes. By default the game builds its own period-dressed
-characters: a 19-bone skeleton with auto-weighted clothing layers and keyframed animations.
+People are realistic, fully rigged characters assembled at runtime from Quaternius' CC0 *Universal
+Base Characters*, *Modular Character Outfits* and *Universal Animation Library*. All three share one
+65-bone skeleton, and the animation set is motion captured. Each character is built from a head, an
+outfit (recoloured into red, blue or white coats for British, Spanish and French soldiers, or a
+crimson coat for the captain), hair, beard and a period hat (tricorne, bandana, straw hat or bonnet),
+with a varied skin tone. The web-ready GLBs in `public/models/humans/` are produced by
+`node tools/build-humans.mjs <folder with the extracted packs>`.
 
-You can swap in artist-made rigged glTF/GLB characters, for example Quaternius' CC0 *Pirate Kit*.
-Put the files in `public/models/characters/` and list them in `public/models/characters/manifest.json`:
+You can override any role with your own rigged glTF/GLB. Put the file in
+`public/models/characters/` and list it in `public/models/characters/manifest.json`:
 
 ```json
-{ "roles": {
-    "captain": "Characters_Captain_Barbarossa.gltf",
-    "pirate": ["Characters_Henry.gltf", "Characters_Mako.gltf"],
-    "pirate_female": "Characters_Anne.gltf"
-} }
+{ "roles": { "captain": "MyCaptain.glb", "pirate": ["Pirate1.glb", "Pirate2.glb"] } }
 ```
 
 Roles: `captain`, `pirate`, `pirate_female`, `soldier_britain`, `soldier_spain`, `soldier_france`,
-`soldier_pirate`, `townsman`, `townswoman`, `sailor`, `merchant`.
-
-Models are scaled to human height and turned to face forward. Their animation clips are matched by
-name (idle, walk, run, sword or attack, aim or shoot, hit, death, interact). Any role without a model
-uses the built-in characters.
+`soldier_pirate`, `townsman`, `townswoman`, `sailor`, `merchant`. Clips are matched by name. If no
+models are present, the game falls back to its own procedural rig.
 
 ## A note on history
 
