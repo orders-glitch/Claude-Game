@@ -311,9 +311,9 @@ export class Game {
     return ship;
   }
 
+  // Recreate the player's ship from state (after a refit or a new purchase). Callers update state first.
   rebuildPlayerShip() {
     const old = this.playerShip;
-    this.syncStateFromPlayerShip();
     const anchored = old.anchored;
     this.removeShip(old);
     const s = this.createPlayerShip(old.position.x, old.position.z, old.heading);

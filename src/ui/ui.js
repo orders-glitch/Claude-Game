@@ -907,6 +907,7 @@ export class UI {
     } else if (d.upgrade) {
       const costs = { guns: [900, 2200, 4800], hull: [1200, 3200], sails: [800, 2400] }[d.upgrade];
       const c = costs[s.upgrades[d.upgrade]];
+      g.syncStateFromPlayerShip();
       s.gold -= c;
       s.upgrades[d.upgrade]++;
       if (d.upgrade === 'hull') s.ship.hull = g.playerHullMax();
@@ -918,6 +919,7 @@ export class UI {
       const c = SHIP_CLASSES[d.buyship];
       const cost = Math.max(0, c.price - trade);
       if (s.cargoCount() > c.cargo) return this.toast('Your cargo will not fit in her hold. Sell some first.', 'warn');
+      g.syncStateFromPlayerShip();
       s.gold -= cost;
       s.ship.cls = d.buyship;
       s.ship.hull = g.playerHullMax();

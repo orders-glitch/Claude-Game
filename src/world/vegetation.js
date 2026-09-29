@@ -155,8 +155,8 @@ function buildTree() {
   trunk.translate(0, 3.5, 0);
   const parts = [];
   const rnd = mulberry32(5);
-  for (let i = 0; i < 4; i++) {
-    const b = blob(2.6 + rnd() * 1.2, 1, 10 + i, 0.75);
+  for (let i = 0; i < 3; i++) {
+    const b = blob(2.9 + rnd() * 1.2, 1, 10 + i, 0.75);
     b.translate((rnd() - 0.5) * 3, 7 + rnd() * 2.5, (rnd() - 0.5) * 3);
     parts.push(b.index ? b : b);
   }
@@ -224,11 +224,15 @@ export class Vegetation {
     const rnd = mulberry32(2024);
     for (const is of terrain.islands) {
       const area = Math.PI * is.rx * is.rz;
-      const n = Math.floor(area / 380 * density);
-      const ex = is.maxR + is.warpAmp;
+      // big islands get a slightly thinner scatter so the triangle budget stays sane
+      const per = area > 2e6 ? 520 : area > 5e5 ? 430 : 360;
+      const n = Math.floor(area / per * density);
+      const ax = is.rx + is.warpAmp, az = is.rz + is.warpAmp;
       for (let i = 0; i < n; i++) {
-        const x = is.x + (rnd() * 2 - 1) * ex;
-        const z = is.z + (rnd() * 2 - 1) * ex;
+        // sample in the island's rotated bounding box
+        const lx = (rnd() * 2 - 1) * ax, lz = (rnd() * 2 - 1) * az;
+        const x = is.x + lx * is.cos + lz * is.sin;
+        const z = is.z - lx * is.sin + lz * is.cos;
         const h = terrain.height(x, z);
         if (h < 1.2) continue;
         if (avoid(x, z)) continue;
@@ -242,9 +246,9 @@ export class Vegetation {
             const sc = 0.75 + rnd() * 0.55;
             push('palm', x, h - 0.2, z, rnd() * Math.PI * 2, sc, 0);
           } else if (r < 0.34) push('bush', x, h, z, rnd() * 6, 0.6 + rnd() * 0.7);
-        } else if (slope < 0.45) {
-          if (r < 0.1 + jun * 0.35) push('tree', x, h - 0.3, z, rnd() * 6, 0.7 + rnd() * 0.7);
-          else if (r < 0.2 + jun * 0.4) push('bush', x, h, z, rnd() * 6, 0.7 + rnd() * 1.1);
+        } else if (slope < 0.62) {
+          if (r < 0.16 + jun * 0.5) push('tree', x, h - 0.3, z, rnd() * 6, 0.75 + rnd() * 0.75);
+          else if (r < 0.24 + jun * 0.55) push('bush', x, h, z, rnd() * 6, 0.7 + rnd() * 1.1);
           else if (r < 0.25 + jun * 0.4 && h < 30) push('palm', x, h - 0.2, z, rnd() * 6, 0.8 + rnd() * 0.5);
           else if (r > 0.97) push('rock', x, h - 0.2, z, rnd() * 6, 0.6 + rnd() * 1.6);
         } else if (r < 0.2) {
@@ -253,6 +257,8 @@ export class Vegetation {
       }
     }
 
+    this.counts = {};
+    for (const b of buckets.values()) for (const k in b) this.counts[k] = (this.counts[k] || 0) + b[k].length;
     // build instanced meshes per chunk
     const typeMap = { palm: ['palmTrunk', 'palmCrown'], tree: ['treeTrunk', 'treeCanopy'], bush: ['bush'], rock: ['rock'] };
     for (const [key, b] of buckets) {
