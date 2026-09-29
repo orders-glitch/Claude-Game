@@ -580,7 +580,7 @@ function colorGeo(g, c) {
   return g;
 }
 const weaponCache = {};
-function weaponMesh(kind) {
+export function weaponMesh(kind) {
   if (!weaponCache[kind]) {
     const parts = [];
     if (kind === 'cutlass') {

@@ -29,16 +29,16 @@ function part(list, mat = charMat) {
 }
 
 export const LOOKS = {
-  captain: { skin: '#c89468', coat: '#5a1f1a', coatLong: true, shirt: '#ece4d0', vest: '#8a6a2a', breeches: '#2a2320', stockings: '#d8d0c0', shoes: '#1a1410', hat: 'tricorne', hatColor: '#1c1814', hair: '#2a1a10', sash: '#8a1d1d', weapon: 'cutlass', trim: '#c9a13a', boots: true, shoes: '#2a1a10', beard: '#2a1a10', baldric: true },
-  pirate: { skin: '#b07850', coat: null, shirt: '#d8ccb0', vest: '#5a4630', breeches: '#4a4034', stockings: '#6a5a44', shoes: '#2a2018', hat: 'bandana', hatColor: '#8a2a1a', hair: '#1a1410', sash: '#3a5a7a', weapon: 'cutlass', sleeves: 'rolled', slops: true },
-  redcoat: { skin: '#e0b090', coat: '#a4221e', coatLong: true, shirt: '#ece4d0', vest: '#d8ccb0', breeches: '#d8ccb0', stockings: '#e8e0d0', shoes: '#141210', hat: 'tricorne', hatColor: '#141210', hair: '#e8e4dc', weapon: 'musket', trim: '#e8dcc0', crossbelt: true },
-  spanishSoldier: { skin: '#c08a60', coat: '#2b3f7a', coatLong: true, shirt: '#ece4d0', vest: '#c9372c', breeches: '#2b3f7a', stockings: '#c9372c', shoes: '#141210', hat: 'tricorne', hatColor: '#141210', hair: '#1a1410', weapon: 'musket', trim: '#e8dcc0', crossbelt: true },
-  frenchSoldier: { skin: '#d8a882', coat: '#d9d4c6', coatLong: true, shirt: '#ece4d0', vest: '#1f3d78', breeches: '#d9d4c6', stockings: '#e8e0d0', shoes: '#141210', hat: 'tricorne', hatColor: '#141210', hair: '#e8e4dc', weapon: 'musket', trim: '#1f3d78', crossbelt: true },
-  townsman: { skin: '#d0a078', coat: '#6a5a44', coatLong: true, shirt: '#e8e0cc', vest: '#8a7a5a', breeches: '#4a4238', stockings: '#b8b0a0', shoes: '#241c14', hat: 'tricorne', hatColor: '#2a241c', hair: '#5a3a20', weapon: null },
-  sailor: { skin: '#a87048', coat: null, shirt: '#e0d8c4', vest: null, breeches: '#8a8a7a', stockings: null, shoes: null, hat: 'straw', hatColor: '#c8b078', hair: '#2a1a10', weapon: null, slops: true },
-  woman: { skin: '#d8a882', dress: '#8a4a5a', bodice: '#5a3a3a', shirt: '#eee6d6', hat: 'bonnet', hatColor: '#eee6d6', hair: '#5a3018', weapon: null },
-  woman2: { skin: '#8a5a3a', dress: '#c9a060', bodice: '#6a4a2a', shirt: '#eee6d6', hat: 'headwrap', hatColor: '#b8442a', hair: '#1a1410', weapon: null },
-  merchant: { skin: '#e0b090', coat: '#2a3a5a', coatLong: true, shirt: '#f0e8d8', vest: '#c9a13a', breeches: '#2a2a2a', stockings: '#e8e0d0', shoes: '#141210', hat: 'tricorne', hatColor: '#1a1a1a', hair: '#e8e4dc', weapon: null, trim: '#c9a13a' },
+  captain: { role: 'captain', skin: '#c89468', coat: '#5a1f1a', coatLong: true, shirt: '#ece4d0', vest: '#8a6a2a', breeches: '#2a2320', stockings: '#d8d0c0', shoes: '#1a1410', hat: 'tricorne', hatColor: '#1c1814', hair: '#2a1a10', sash: '#8a1d1d', weapon: 'cutlass', trim: '#c9a13a', boots: true, shoes: '#2a1a10', beard: '#2a1a10', baldric: true },
+  pirate: { role: 'pirate', skin: '#b07850', coat: null, shirt: '#d8ccb0', vest: '#5a4630', breeches: '#4a4034', stockings: '#6a5a44', shoes: '#2a2018', hat: 'bandana', hatColor: '#8a2a1a', hair: '#1a1410', sash: '#3a5a7a', weapon: 'cutlass', sleeves: 'rolled', slops: true },
+  redcoat: { role: 'soldier_britain', skin: '#e0b090', coat: '#a4221e', coatLong: true, shirt: '#ece4d0', vest: '#d8ccb0', breeches: '#d8ccb0', stockings: '#e8e0d0', shoes: '#141210', hat: 'tricorne', hatColor: '#141210', hair: '#e8e4dc', weapon: 'musket', trim: '#e8dcc0', crossbelt: true },
+  spanishSoldier: { role: 'soldier_spain', skin: '#c08a60', coat: '#2b3f7a', coatLong: true, shirt: '#ece4d0', vest: '#c9372c', breeches: '#2b3f7a', stockings: '#c9372c', shoes: '#141210', hat: 'tricorne', hatColor: '#141210', hair: '#1a1410', weapon: 'musket', trim: '#e8dcc0', crossbelt: true },
+  frenchSoldier: { role: 'soldier_france', skin: '#d8a882', coat: '#d9d4c6', coatLong: true, shirt: '#ece4d0', vest: '#1f3d78', breeches: '#d9d4c6', stockings: '#e8e0d0', shoes: '#141210', hat: 'tricorne', hatColor: '#141210', hair: '#e8e4dc', weapon: 'musket', trim: '#1f3d78', crossbelt: true },
+  townsman: { role: 'townsman', skin: '#d0a078', coat: '#6a5a44', coatLong: true, shirt: '#e8e0cc', vest: '#8a7a5a', breeches: '#4a4238', stockings: '#b8b0a0', shoes: '#241c14', hat: 'tricorne', hatColor: '#2a241c', hair: '#5a3a20', weapon: null },
+  sailor: { role: 'sailor', skin: '#a87048', coat: null, shirt: '#e0d8c4', vest: null, breeches: '#8a8a7a', stockings: null, shoes: null, hat: 'straw', hatColor: '#c8b078', hair: '#2a1a10', weapon: null, slops: true },
+  woman: { role: 'townswoman', skin: '#d8a882', dress: '#8a4a5a', bodice: '#5a3a3a', shirt: '#eee6d6', hat: 'bonnet', hatColor: '#eee6d6', hair: '#5a3018', weapon: null },
+  woman2: { role: 'townswoman', skin: '#8a5a3a', dress: '#c9a060', bodice: '#6a4a2a', shirt: '#eee6d6', hat: 'headwrap', hatColor: '#b8442a', hair: '#1a1410', weapon: null },
+  merchant: { role: 'merchant', skin: '#e0b090', coat: '#2a3a5a', coatLong: true, shirt: '#f0e8d8', vest: '#c9a13a', breeches: '#2a2a2a', stockings: '#e8e0d0', shoes: '#141210', hat: 'tricorne', hatColor: '#1a1a1a', hair: '#e8e4dc', weapon: null, trim: '#c9a13a' },
 };
 
 export function buildCharacter(look) {

@@ -2,15 +2,24 @@
 import * as THREE from 'three';
 import { LOOKS } from './character.js';
 import { CharacterRig } from './rig.js';
+import { modelLibrary, GltfRig } from './modelLibrary.js';
 import { clamp, damp, dampAngle, wrapAngle, rand, pick } from '../core/noise.js';
 
 const GRAV = 22;
+// if a role has no artist model, try a close substitute before falling back to the procedural rig
+const ROLE_FALLBACK = { pirate_female: 'pirate', soldier_pirate: 'pirate', sailor: 'pirate' };
+function modelRole(role) {
+  if (modelLibrary.has(role)) return role;
+  const alt = ROLE_FALLBACK[role];
+  return alt && modelLibrary.has(alt) ? alt : null;
+}
 
 export class Walker {
   constructor(game, look, opts = {}) {
     this.game = game;
     this.look = look;
-    this.rig = new CharacterRig(look);
+    const role = modelRole(look.role);
+    this.rig = role ? new GltfRig(modelLibrary.pick(role)) : new CharacterRig(look);
     this.root = this.rig.root;
     this.pos = new THREE.Vector3(opts.x || 0, opts.y || 0, opts.z || 0);
     this.yaw = opts.yaw || 0;
@@ -359,13 +368,13 @@ export function lookFor(kind, nation) {
   if (kind === 'guard' || kind === 'soldier') {
     if (nation === 'britain') return { ...LOOKS.redcoat };
     if (nation === 'france') return { ...LOOKS.frenchSoldier };
-    if (nation === 'pirate') return { ...LOOKS.pirate, weapon: 'musket' };
+    if (nation === 'pirate') return { ...LOOKS.pirate, role: 'soldier_pirate', weapon: 'musket' };
     return { ...LOOKS.spanishSoldier };
   }
   if (kind === 'pirate') {
     const skins = ['#b07850', '#8a5a3a', '#c89468', '#6a4028', '#e0b090'];
     const tops = ['#d8ccb0', '#8a3a2a', '#4a5a6a', '#b0a080', '#6a2a3a'];
-    return { ...LOOKS.pirate, skin: pick(skins), shirt: pick(tops), hatColor: pick(['#8a2a1a', '#2a3a5a', '#1a1a1a', '#6a5a2a']), hat: Math.random() < 0.3 ? 'tricorne' : Math.random() < 0.5 ? 'bandana' : 'straw', sash: pick(['#8a1d1d', '#3a5a7a', '#6a5a2a']), weapon: 'cutlass' };
+    return { ...LOOKS.pirate, role: Math.random() < 0.3 ? 'pirate_female' : 'pirate', skin: pick(skins), shirt: pick(tops), hatColor: pick(['#8a2a1a', '#2a3a5a', '#1a1a1a', '#6a5a2a']), hat: Math.random() < 0.3 ? 'tricorne' : Math.random() < 0.5 ? 'bandana' : 'straw', sash: pick(['#8a1d1d', '#3a5a7a', '#6a5a2a']), weapon: 'cutlass' };
   }
   const r = Math.random();
   const skins = ['#d0a078', '#8a5a3a', '#6a4028', '#e0b48c', '#b07850'];

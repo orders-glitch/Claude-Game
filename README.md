@@ -94,6 +94,29 @@ and `Esc` pauses.
 - **Saving:** progress auto-saves when you dock or rest, and saves are kept in your browser's
   local storage.
 
+## Character models
+
+Characters are fully rigged skinned meshes. By default the game builds its own period-dressed
+characters: a 19-bone skeleton with auto-weighted clothing layers and keyframed animations.
+
+You can swap in artist-made rigged glTF/GLB characters, for example Quaternius' CC0 *Pirate Kit*.
+Put the files in `public/models/characters/` and list them in `public/models/characters/manifest.json`:
+
+```json
+{ "roles": {
+    "captain": "Characters_Captain_Barbarossa.gltf",
+    "pirate": ["Characters_Henry.gltf", "Characters_Mako.gltf"],
+    "pirate_female": "Characters_Anne.gltf"
+} }
+```
+
+Roles: `captain`, `pirate`, `pirate_female`, `soldier_britain`, `soldier_spain`, `soldier_france`,
+`soldier_pirate`, `townsman`, `townswoman`, `sailor`, `merchant`.
+
+Models are scaled to human height and turned to face forward. Their animation clips are matched by
+name (idle, walk, run, sword or attack, aim or shoot, hit, death, interact). Any role without a model
+uses the built-in characters.
+
 ## A note on history
 
 The setting is real: the 1713 Peace of Utrecht, the wreck of the 1715 Plate Fleet off Florida,

@@ -25,6 +25,7 @@ import { shipTime, shipMaterials } from './entities/shipModel.js';
 import { Effects } from './entities/effects.js';
 import { Projectiles } from './entities/projectiles.js';
 import { PlayerWalker, NPC, lookFor } from './entities/actors.js';
+import { modelLibrary } from './entities/modelLibrary.js';
 import { ISLANDS, PORTS, NATIONS, SHIP_CLASSES, SHIP_NAMES, GOODS, SALVAGE_CAMP, MONTHS } from './game/data.js';
 import { GameState } from './game/state.js';
 import { Missions } from './game/missions.js';
@@ -141,6 +142,8 @@ export class Game {
     this.vegetation = new Vegetation(scene, this.terrain, avoid, q);
     this.wildlife = new Wildlife(scene, this.terrain);
 
+    await step(0.8, 'Mustering the crew…');
+    await modelLibrary.load();
     await step(0.85, 'Casting cannon…');
     this.effects = new Effects(scene, this.ocean);
     this.projectiles = new Projectiles(scene);
