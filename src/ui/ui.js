@@ -40,6 +40,8 @@ export class UI {
     const has = this.game.hasSave();
     $('btn-continue').classList.toggle('hidden', !has);
     $('save-summary').textContent = has ? this.game.saveSummary() : '';
+    const touchOnly = window.matchMedia && !window.matchMedia('(pointer: fine)').matches;
+    if (touchOnly) $('save-summary').textContent += (has ? ' — ' : '') + 'Best played on a computer with keyboard and mouse.';
     $('newgame').classList.add('hidden');
     $('title-menu').classList.remove('hidden');
   }
@@ -74,7 +76,7 @@ export class UI {
       if (act === 'settings') this.openModal('settings');
       if (act === 'controls') this.openModal('controls');
       if (act === 'log') this.openLog();
-      if (act === 'quit') { this.closeAll(); g.quitToTitle(); }
+      if (act === 'quit') { g.quitToTitle(); this.closeAll(); }
     });
     document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { g.audio.ui('click'); this.closeTop(); }));
     // settings
@@ -188,6 +190,7 @@ export class UI {
         this.dialogCb = null;
         this.closeTop();
         b.act();
+        if (this.dialogQueue?.length && this.top() !== 'dialog') this.showNextDialog();
       };
       row.appendChild(el);
     }

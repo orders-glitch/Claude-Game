@@ -259,8 +259,9 @@ void main() {
   float n = texture2D(uNoise, vW.xz * 0.08).g * 0.6 + texture2D(uNoise, vW.xz * 0.25).r * 0.5;
   float edge = 1.0 - pow(abs(vUv2.x * 2.0 - 1.0), 2.5);
   float centre = 0.55 + 0.45 * smoothstep(0.2, 0.5, abs(vUv2.x - 0.5));
-  float a = vAlpha * smoothstep(0.35, 0.85, n + edge * 0.35) * edge * centre;
-  gl_FragColor = vec4(uLight * 0.95, a * 0.7);
+  float streak = texture2D(uNoise, vec2(vUv2.x * 1.7, vW.x * 0.02 + vW.z * 0.02)).b;
+  float a = vAlpha * smoothstep(0.5, 0.95, n + edge * 0.2 + streak * 0.25) * edge * centre;
+  gl_FragColor = vec4(uLight * 0.95, a * 0.55);
   #include <colorspace_fragment>
 }
 `;

@@ -72,6 +72,8 @@ export class Game {
     this.forts = [];
     this.timeScale = 1;
     this.hitShips = new Set();
+    this.timers = new Set();
+    this.transitioning = false;
   }
 
   // ======================================================================== init
@@ -219,6 +221,11 @@ export class Game {
   }
 
   clearWorld() {
+    for (const id of this.timers) clearTimeout(id);
+    this.timers.clear();
+    this.transitioning = false;
+    this.digging = null;
+    this.ui.fade(false);
     for (const s of this.ships) { this.effects.removeWake(s.wake); s.dispose(this.scene); }
     this.ships = [];
     this.playerShip = null;
@@ -416,16 +423,35 @@ export class Game {
   enterFoot(pos, town) {
     this.mode = 'foot';
     this.ui.hint('[WASD] walk · [Shift] run · [Left Click] cutlass · hold [Right Click] to aim a pistol · [E] interact · [F] return to ship');
+    if (this.walker) this.walker.dispose();
     this.walker = new PlayerWalker(this, { x: pos.x, y: pos.y, z: pos.z, yaw: town ? town.dir + Math.PI : 0 });
     this.walker.camYaw = this.walker.yaw;
     this.currentTown = town || null;
     this.sky.setShadowExtent(45);
   }
 
+  // setTimeout scoped to the current session: cancelled when the world is cleared
+  later(ms, fn) {
+    const id = setTimeout(() => { this.timers.delete(id); fn(); }, ms);
+    this.timers.add(id);
+    return id;
+  }
+
+  // fade-out → action → fade-in, ignoring further input until it completes
+  transition(ms, fn) {
+    if (this.transitioning) return;
+    this.transitioning = true;
+    this.ui.fade(true);
+    this.later(ms, () => {
+      this.transitioning = false;
+      fn();
+      this.ui.fade(false);
+    });
+  }
+
   dock(town) {
     const p = this.playerShip;
-    this.ui.fade(true);
-    setTimeout(() => {
+    this.transition(700, () => {
       p.position.set(town.berth.x, 0, town.berth.z);
       p.heading = town.berth.heading;
       p.speed = 0;
@@ -439,40 +465,35 @@ export class Game {
       this.discover(town);
       this.missions.onEvent({ type: 'dock', port: town.port.id });
       this.save();
-      this.ui.fade(false);
       const w = this.state.wanted(town.port.nation);
       if (town.port.nation !== 'pirate' && w >= 2) this.ui.toast(`The ${NATIONS[town.port.nation].adj} garrison knows your face — expect trouble ashore!`, 'warn', 5000);
       else this.ui.toast(`Welcome to ${town.port.name}. ${town.port.desc}`, 'info', 5000);
-    }, 700);
+    });
   }
 
   goAshore(landing) {
     const p = this.playerShip;
-    this.ui.fade(true);
-    setTimeout(() => {
+    this.transition(600, () => {
       p.speed = 0; p.sailTarget = 0; p.anchored = true;
       this.syncStateFromPlayerShip();
       this.enterFoot(new THREE.Vector3(landing.x, landing.y + 0.2, landing.z), null);
       this.walker.yaw = Math.atan2(-(landing.x - p.position.x), -(landing.z - p.position.z));
       this.walker.camYaw = this.walker.yaw;
-      this.ui.fade(false);
       this.ui.toast('Your boat crew rows you ashore. Press F near the water to return.', 'info');
-    }, 600);
+    });
   }
 
   boardOwnShip() {
-    this.ui.fade(true);
-    setTimeout(() => {
-      this.despawnNPCs();
+    this.transition(600, () => {
+      this.despawnNPCs(true);
       this.currentTown = null;
       this.enterSail();
       const p = this.playerShip;
       // push away from the pier a little
       p.speed = 2;
-      this.ui.fade(false);
       this.missions.onEvent({ type: 'board' });
       this.ui.toast('All hands! Make sail with [W].', 'info');
-    }, 600);
+    });
   }
 
   // ======================================================================== loop
@@ -552,6 +573,8 @@ export class Game {
       this.manageNPCs();
       this.missions.update(dt);
     }
+    // salvage-camp guards only exist while that objective is live
+    if (this.keepNPCs && !(s.mission.id === 'm3' && s.mission.stage === 3)) this.despawnNPCs();
     // npcs
     for (const n of this.npcs) n.update(dt);
     this.combatT = Math.max(0, (this.combatT || 0) - dt);
@@ -754,6 +777,7 @@ export class Game {
   }
 
   sailContext() {
+    if (this.transitioning) return null;
     const p = this.playerShip;
     // boarding
     for (const s of this.ships) {
@@ -874,7 +898,7 @@ export class Game {
     this.audio.crunch(ship.position);
     if (ship.isPlayer) {
       this.ui.toast('She\'s going down! Abandon ship!', 'warn');
-      setTimeout(() => this.onPlayerShipLost(), 6000);
+      this.later(6000, () => this.onPlayerShipLost());
       return;
     }
     const byPlayer = ship.lastHitBy?.isPlayer;
@@ -941,7 +965,7 @@ export class Game {
       losses = Math.min(p.crew - 1, Math.round(ship.crew * rand(0.25, 0.5) / Math.max(0.6, ratio)));
     } else losses = randInt(0, 2);
     p.crew = Math.max(1, p.crew - losses);
-    this.audio.clang(p.position); setTimeout(() => this.audio.clang(p.position), 200); setTimeout(() => this.audio.musket(p.position), 350);
+    this.audio.clang(p.position); this.later(200, () => this.audio.clang(p.position)); this.later(350, () => this.audio.musket(p.position));
     if (!won) {
       p.hull -= p.hullMax * 0.1;
       this.ui.dialog('Boarding repulsed', `Your boarders are thrown back with ${losses} men lost. The ${ship.name} still fights!`, () => {});
@@ -978,7 +1002,15 @@ export class Game {
   takeCommand(ship) {
     const s = this.state;
     const cls = ship.cls;
-    if (s.cargoCount() > cls.cargo) this.ui.toast('Some cargo had to be left behind.', 'warn');
+    if (s.cargoCount() > cls.cargo) {
+      let excess = s.cargoCount() - cls.cargo;
+      for (const k of Object.keys(s.ship.cargo).sort((a, b) => GOODS[a].base - GOODS[b].base)) {
+        const n = Math.min(excess, s.ship.cargo[k]);
+        s.ship.cargo[k] -= n; excess -= n;
+        if (excess <= 0) break;
+      }
+      this.ui.toast('Her hold is smaller — the cheapest cargo had to be left behind.', 'warn');
+    }
     const old = this.playerShip;
     const oldCls = old.cls;
     s.ship.cls = cls.id;
@@ -1000,22 +1032,23 @@ export class Game {
   onPlayerShipLost() {
     const s = this.state;
     this.ui.wasted('Sunk', 'Your crew drags you from the water. The Brethren lend you a sloop in Nassau.');
-    this.ui.fade(true);
-    setTimeout(() => {
+    this.transitioning = false;
+    this.transition(3800, () => {
       s.gold = Math.floor(s.gold * 0.7);
-      s.ship = { cls: 'sloop', hull: SHIP_CLASSES.sloop.hull * (1 + 0.25 * s.upgrades.hull), sails: SHIP_CLASSES.sloop.sails, crew: 18, cargo: {} };
       s.upgrades.hull = Math.min(s.upgrades.hull, 1);
+      s.ship = { cls: 'sloop', hull: SHIP_CLASSES.sloop.hull * (1 + 0.25 * s.upgrades.hull), sails: SHIP_CLASSES.sloop.sails, crew: 18, cargo: {} };
       for (const k in s.notoriety) s.notoriety[k] = Math.max(0, s.notoriety[k] - 1.5);
       this.removeShip(this.playerShip);
       this.despawnHunters();
+      this.despawnNPCs();
       const town = this.towns.nassau;
       this.createPlayerShip(town.berth.x, town.berth.z, town.berth.heading);
       this.playerShip.anchored = true;
       this.enterFoot(town.spawnPoint.clone(), town);
+      s.lastPort = 'nassau';
       s.hours = 8; s.day += 1;
-      this.ui.fade(false);
       this.save();
-    }, 3800);
+    });
   }
 
   // ======================================================================== forts
@@ -1169,7 +1202,7 @@ export class Game {
 
   footContext() {
     const w = this.walker;
-    if (w.dead) return null;
+    if (w.dead || this.transitioning) return null;
     // doors
     for (const t of this.townList) {
       if (t.center.distanceTo(w.pos) > t.R * 2) continue;
@@ -1190,7 +1223,9 @@ export class Game {
           const guards = this.npcs.filter((n) => n.kind === 'soldier' && !n.dead && n.pos.distanceTo(w.pos) < 30).length;
           if (guards > 0) { this.ui.toast(`Deal with the soldiers first! (${guards} nearby)`, 'warn'); return; }
           c.taken = true;
-          const n = Math.min(12, this.playerCargoRoom());
+          const idx = this.salvage.chests.indexOf(c);
+          (this.state.mission.chests = this.state.mission.chests || []).push(idx);
+          const n = Math.max(0, Math.min(12, this.playerCargoRoom()));
           this.state.ship.cargo.silver = (this.state.ship.cargo.silver || 0) + n;
           this.state.gold += 150;
           this.audio.coins();
@@ -1400,7 +1435,8 @@ export class Game {
       n.dispose();
     }
     this.npcs = keep;
-    if (!keepSpecial) { this.npcTown = null; this.keepNPCs = false; }
+    this.npcTown = null;
+    if (!keepSpecial) this.keepNPCs = false;
   }
 
   isWalkerHostile(npc) {
@@ -1490,31 +1526,28 @@ export class Game {
 
   onPlayerDeath() {
     const s = this.state;
-    setTimeout(() => {
+    this.later(1500, () => {
       this.ui.wasted('Left for Dead', 'You wake in a tavern back room, lighter in the purse.');
-      this.ui.fade(true);
-      setTimeout(() => {
+      this.transitioning = false;
+      this.transition(3500, () => {
         s.gold = Math.floor(s.gold * 0.8);
         for (const t of this.townList) t.alarm = false;
         for (const k in s.notoriety) s.notoriety[k] = Math.max(0, s.notoriety[k] - 1);
         const town = this.towns[s.lastPort] || this.towns.nassau;
         const tav = town.doors.find((d) => d.type === 'tavern');
-        this.despawnNPCs();
-        this.walker.dispose();
+        this.despawnNPCs(true);
         const p = this.playerShip;
         p.position.set(town.berth.x, 0, town.berth.z); p.heading = town.berth.heading; p.anchored = true; p.speed = 0; p.sailTarget = 0;
         p.updateAxes();
         this.enterFoot(tav.pos.clone().add(new THREE.Vector3(0, 0.5, 0)), town);
         s.hours = 9; s.day++;
-        this.ui.fade(false);
-      }, 3500);
-    }, 1500);
+      });
+    });
   }
 
   // ======================================================================== misc actions
   restUntilMorning() {
-    this.ui.fade(true);
-    setTimeout(() => {
+    this.transition(900, () => {
       const s = this.state;
       if (s.hours > 6) s.day++;
       s.hours = 7;
@@ -1522,9 +1555,8 @@ export class Game {
       for (const k in s.notoriety) s.notoriety[k] = Math.max(0, s.notoriety[k] - 0.6);
       for (const t of this.townList) t.alarm = false;
       this.save();
-      this.ui.fade(false);
       this.ui.toast('You wake refreshed. Game saved.', 'good');
-    }, 900);
+    });
   }
 
   canFastTravel() { return this.mode === 'sail' && this.playerShip?.alive && !this.hostilesNear(1400) && !this.playerShip.struck; }
@@ -1540,8 +1572,7 @@ export class Game {
     const dest = new THREE.Vector3(town.berth.x, 0, town.berth.z).add(new THREE.Vector3(town.sea.x, 0, town.sea.y).multiplyScalar(260));
     const dist = dest.distanceTo(p.position);
     const hours = dist / (p.cls.speed * 0.75) / 60 * 6;
-    this.ui.fade(true);
-    setTimeout(() => {
+    this.transition(900, () => {
       p.position.copy(dest);
       p.heading = Math.atan2(-(town.berth.x - dest.x), -(town.berth.z - dest.z));
       p.speed = 4; p.sailTarget = 1;
@@ -1550,9 +1581,8 @@ export class Game {
       for (const s of [...this.ships]) if (!s.isPlayer && !s.mission) this.removeShip(s);
       this.camYaw = p.heading + 0.4;
       this.fillTraffic(true);
-      this.ui.fade(false);
       this.ui.toast(`After ${Math.max(1, Math.round(hours))} hours under sail you raise ${town.port.name}.`, 'info', 5000);
-    }, 900);
+    });
   }
 
   canSaveHere() { return true; }
@@ -1581,6 +1611,8 @@ export class Game {
 
   onLockChange(locked) {
     this._lockChangeT = performance.now();
+    // a late-arriving lock while a menu or the title is showing: release it again
+    if (locked && (this.ui.anyModal() || (this.mode !== 'sail' && this.mode !== 'foot'))) { this.input.unlock(); return; }
     const playing = (this.mode === 'sail' || this.mode === 'foot') && !this.ui.anyModal();
     // The browser released the pointer (usually Esc): pause the game.
     if (!locked && playing) this.ui.openModal('pause');

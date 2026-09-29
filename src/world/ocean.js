@@ -273,7 +273,7 @@ void main() {
   vec3 fA = texture2D(uFoamTex, uv * 0.045 + vec2(uTime * 0.01)).rgb;
   vec3 fB = texture2D(uFoamTex, uv * 0.19 - vec2(uTime * 0.02, 0.0)).rgb;
   float foamNoise = fA.g * 0.6 + fB.r * 0.6;
-  float crest = smoothstep(1.2, 1.9, vHeight / max(uSea, 0.35) + foamNoise * 0.8 - 0.25) * vFade;
+  float crest = smoothstep(1.3, 2.0, vHeight / max(uSea, 0.35) + foamNoise * 0.9 - 0.3) * vFade * (0.35 + 0.65 * fB.g);
   crest *= smoothstep(0.9, 1.7, uSea) * 0.8 + 0.12;
   float shoreBand = veryShallow * (1.0 - smoothstep(-0.2, 0.6, ground - vHeight + 0.4));
   float surf = shoreBand * smoothstep(0.35, 0.7, fract(depth * 0.35 - uTime * 0.25 + foamNoise * 0.6)) ;

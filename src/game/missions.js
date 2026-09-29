@@ -60,7 +60,12 @@ export function buildStory(game) {
         },
         {
           text: 'Go ashore [F near the beach] and seize the silver (0/3)',
-          onStart: () => { game.spawnSalvageGuards(); game.salvage.chestsTaken = 0; },
+          onStart: () => {
+            const taken = game.state.mission.chests || [];
+            game.salvage.chestsTaken = taken.length;
+            game.salvage.chests.forEach((c, i) => { c.taken = taken.includes(i); });
+            game.spawnSalvageGuards();
+          },
           marker: () => game.salvage.center3,
           onEvent: (e, st) => {
             if (e.type === 'chest') {
@@ -170,6 +175,9 @@ export class Missions {
   start(stageIdx = this.game.state.mission.stage) {
     const st = this.stage;
     if (st?.onStart && !st._started) { st._started = true; st.onStart(); }
+    if (st?.id === undefined && this.game.state.mission.id === 'm3' && this.game.state.mission.stage === 3) {
+      st.text = `Go ashore [F near the beach] and seize the silver (${this.game.salvage.chestsTaken || 0}/3)`;
+    }
   }
 
   // re-create mission entities after loading a save
@@ -213,18 +221,19 @@ export class Missions {
     const g = this.game;
     const cur = this.current;
     const st = this.stage;
+    let consumed = false;
     if (cur && st) {
       if (st.onEvent && st.onEvent(e, st)) {
         if (st.dialog && cur.intro) {
           g.ui.dialog(cur.intro[0], cur.intro[1], () => this.advance());
-          return true;
-        }
-        if (st.talk) {
+          consumed = true;
+        } else if (st.talk) {
           g.ui.dialog(st.talk[0], st.talk[1], () => this.advance());
-          return true;
+          consumed = true;
+        } else {
+          this.advance();
+          consumed = e.type === 'interact';
         }
-        this.advance();
-        return e.type === 'interact';
       }
     }
     // contracts
@@ -237,7 +246,7 @@ export class Missions {
         } else g.ui.toast(`You need ${c.qty} ${GOODS[c.good].name} for the delivery.`, 'warn');
       }
     }
-    return false;
+    return consumed;
   }
 
   update(dt) {
@@ -253,6 +262,7 @@ export class Missions {
     for (const c of [...g.state.contracts]) {
       if (c.deadline !== undefined && g.state.day > c.deadline) {
         g.state.contracts = g.state.contracts.filter((x) => x !== c);
+        if (c.target) { c.target.mission = false; c.target.despawnT = 30; }
         g.ui.toast(`Contract failed: ${c.title}`, 'warn');
         g.ui.refreshObjective();
       }

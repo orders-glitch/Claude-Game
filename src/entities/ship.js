@@ -163,6 +163,29 @@ export class Ship {
 
     this.updateFloat(dt, world);
     this.updateVisuals(dt, wind);
+    this.bowSpray(dt, world);
+  }
+
+  // white water thrown off the bow when she's making way
+  bowSpray(dt, world) {
+    if (this.speed < 9) return;
+    const cam = world.camera?.position;
+    if (cam && cam.distanceTo(this.position) > 450) return;
+    const rate = (this.speed - 8) * 0.9 * (0.6 + world.ocean.seaState * 0.4);
+    if (Math.random() > rate * dt) return;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const L = this.cls.length * 0.44, B = this.cls.beam * 0.35;
+    const x = this.position.x + this.forward.x * L + this.right.x * side * B;
+    const z = this.position.z + this.forward.z * L + this.right.z * side * B;
+    const y = world.ocean.heightAt(x, z) + 0.3;
+    const out = 2 + Math.random() * 3;
+    world.effects.smoke.spawn({
+      x, y, z,
+      vx: this.right.x * side * out + this.forward.x * this.speed * 0.4,
+      vy: 2 + Math.random() * 3,
+      vz: this.right.z * side * out + this.forward.z * this.speed * 0.4,
+      life: 0.9 + Math.random() * 0.5, size: 0.8, endSize: 3.2, r: 0.93, g: 0.96, b: 1, alpha: 0.55, gravity: 9, drag: 0.8,
+    });
   }
 
   cargoCount() {
