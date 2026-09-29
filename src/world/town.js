@@ -4,6 +4,10 @@ import * as THREE from 'three';
 import { Builder, T, gableRoofGeometry, gableEndGeometry, hipRoofGeometry, sharedMaterials } from './builder.js';
 import { mulberry32, pick as rpick } from '../core/noise.js';
 import { flagTexture } from '../core/textures.js';
+import { props, PM } from './props.js';
+
+// cannon_01 is modelled with its muzzle toward +Z; forts face the sea (local -Z)
+const CANNON_YAW = Math.PI;
 
 const STYLE = {
   spanish: {
@@ -60,6 +64,33 @@ export class Town {
     this.center = center;
     this.level = 2.6;
     terrain.addZone({ x: center.x, z: center.z, r: this.R * 1.3, level: this.level, dirt: true });
+    // builder-local (a, y, b) -> world, matching the batched town group's transform
+    this.frame = new THREE.Matrix4().compose(this.coast, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), dir), new THREE.Vector3(1, 1, 1));
+  }
+
+  // place a scanned prop in town-local coordinates; returns false if the model isn't available
+  prop(name, a, y, b, ry = 0, s = 1, rx = 0, rz = 0) {
+    return props.place(name, this.frame.clone().multiply(PM(a, y, b, ry, s, rx, rz)), this.port.id);
+  }
+
+  // a small still life of cargo: crates, maybe with a bucket, jug or basket on top
+  cargo(a, y, b) {
+    const rnd = this.rand;
+    const r = rnd();
+    const ry = rnd() * Math.PI * 2;
+    if (r < 0.4) {
+      this.prop('wooden_crate_02', a, y, b, ry, 1.4);
+      if (rnd() < 0.6) this.prop('wooden_crate_01', a + (rnd() - 0.5) * 0.3, y + 0.63, b, ry + (rnd() - 0.5) * 0.6, 1.6);
+      else this.prop(rnd() < 0.5 ? 'jug_01' : 'wicker_basket_01', a, y + 0.63, b, rnd() * 6, 1.6);
+    } else if (r < 0.7) {
+      this.prop('old_military_crate', a, y, b, ry, 1);
+      this.prop('old_military_crate', a, y + 0.3, b, ry + (rnd() - 0.5) * 0.3, 1);
+      if (rnd() < 0.5) this.prop('wooden_bucket_01', a + 0.5, y + 0.6, b, rnd() * 6, 1);
+    } else {
+      this.prop('wooden_crate_01', a, y, b, ry, 1.8);
+      this.prop('wooden_crate_01', a + 0.1, y + 0.61, b + 0.05, ry + (rnd() - 0.5) * 0.4, 1.8);
+      this.prop('wooden_bucket_01', a + 1.1 * Math.cos(ry), y, b - 1.1 * Math.sin(ry), rnd() * 6, 1);
+    }
   }
 
   // local (a along coast, b inland) -> world
@@ -188,6 +219,9 @@ export class Town {
         const n = 1 + Math.floor(rnd() * 4);
         for (let k = 0; k < n; k++) this.barrel(B, a + (k % 2) * 1.1, y, b + Math.floor(k / 2) * 1.1);
         this.addCollider(a + 0.5, b + 0.5, 1.3, 1.3, 0, 1.2);
+      } else if (props.has('wooden_crate_01')) {
+        this.cargo(a, y, b);
+        this.addCollider(a, b, 1, 1, 0, 1.4);
       } else {
         const s = 1 + rnd() * 0.5;
         B.box('wood', s, s, s, T(a, y + s / 2, b, rnd()), '#a78a62');
@@ -201,9 +235,13 @@ export class Town {
       if (!this.isLandLot(a, b, 0.5, 0.5) || this.overlapsLots(a, b, 0.5, 0.5, 0.2)) continue;
       const y = this.groundAt(a, b);
       B.cyl('wood', 0.09, 0.12, 3.6, 5, T(a, y + 1.8, b), '#3a2a1a');
-      B.box('metal', 0.45, 0.6, 0.45, T(a, y + 3.8, b), '#222');
-      B.box('glow', 0.3, 0.4, 0.3, T(a, y + 3.8, b), '#ffcf80');
-      this.lanterns.push(this.toWorld(a, b, y + 3.8));
+      if (this.prop('wooden_lantern_01', a, y + 3.6, b, rnd() * 6, 1.4)) {
+        B.box('glow', 0.1, 0.22, 0.1, T(a, y + 3.95, b), '#ffcf80');
+      } else {
+        B.box('metal', 0.45, 0.6, 0.45, T(a, y + 3.8, b), '#222');
+        B.box('glow', 0.3, 0.4, 0.3, T(a, y + 3.8, b), '#ffcf80');
+      }
+      this.lanterns.push(this.toWorld(a, b, y + 3.9));
     }
 
     // ---- flag over the fort / governor's house
@@ -271,6 +309,13 @@ export class Town {
     // barrels on pier
     this.barrel(B, a0 + 1.6, deckY + 0.17, -6);
     this.barrel(B, a0 + 2.4, deckY + 0.17, -7.2);
+    if (props.has('wooden_crate_01')) {
+      this.cargo(a0 - width / 2 + 1.2, deckY + 0.17, -11);
+      this.cargo(a0 + width * 1.1, deckY + 0.17, endZ + 1.5);
+      this.barrel(B, a0 - width * 1.2, deckY + 0.17, endZ - 1);
+      this.barrel(B, a0 - width * 1.2 + 0.9, deckY + 0.17, endZ - 0.6);
+      this.prop('wooden_ladder', a0 - width / 2 - 0.15, deckY - 1.1, -16, Math.PI / 2, 1.2, 0, 0.12);
+    }
 
     const mid = this.toWorld(a0, -len / 2 + 3);
     const ang = this.dir;
@@ -292,6 +337,8 @@ export class Town {
   }
 
   barrel(B, a, y, b) {
+    const rnd = this.rand;
+    if (this.prop('wine_barrel_01', a, y, b, rnd() * Math.PI * 2, 1.05 + rnd() * 0.1)) return;
     B.cyl('wood', 0.42, 0.42, 1.1, 10, T(a, y + 0.55, b), '#7a5a38');
     B.cyl('metal', 0.44, 0.44, 0.08, 10, T(a, y + 0.25, b), '#2a2a2a');
     B.cyl('metal', 0.44, 0.44, 0.08, 10, T(a, y + 0.85, b), '#2a2a2a');
@@ -478,7 +525,14 @@ export class Town {
       B.box('wood', 3, 0.15, 1.9, T(sa, sy + 0.95, sb, r), '#7a5a3a');
       B.box('cloth', 3.4, 0.06, 2.4, T(sa, sy + 2.45, sb, r, 1, 1, 1, 0.12), rpick(colors));
       // goods
-      for (let k = 0; k < 4; k++) {
+      const goods = ['wicker_basket_01', 'jug_01', 'wicker_basket_01', 'wooden_bucket_01', 'jug_01'];
+      if (props.has('wicker_basket_01')) {
+        for (let k = 0; k < 4; k++) {
+          const g = goods[Math.floor(rnd() * goods.length)];
+          this.prop(g, sa + (k - 1.5) * 0.7 * Math.cos(r), sy + 1.03, sb - (k - 1.5) * 0.7 * Math.sin(r), rnd() * 6, g === 'wooden_bucket_01' ? 0.8 : 1.8);
+        }
+        this.cargo(sa + Math.sin(r) * 1.8, sy, sb + Math.cos(r) * 1.8);
+      } else for (let k = 0; k < 4; k++) {
         B.box('plain', 0.5, 0.35, 0.5, T(sa + (k - 1.5) * 0.65 * Math.cos(r), sy + 1.2, sb - (k - 1.5) * 0.65 * Math.sin(r), rnd()), rpick(['#c9a24a', '#8a3a2a', '#6a8a3a', '#d8c8a0', '#5a3a1a']));
       }
       this.addCollider(sa, sb, 1.7, 1.1, r, 2.5);
@@ -520,14 +574,16 @@ export class Town {
       this.addCollider(bx, bz, 4, 4, Math.PI / 4);
       // cannon on bastion
       const gx = bx + cx * 1.5, gz = bz - 2.4;
-      B.cyl('metal', 0.22, 0.34, 3, 8, T(gx, y + wallH + 1.8, gz, 0, 1, 1, 1, Math.PI / 2), '#1c1c1e');
-      B.box('wood', 1.4, 0.6, 2.2, T(gx, y + wallH + 1.4, gz + 0.6), '#4a3522');
+      if (!this.prop('cannon_01', gx, y + wallH + 1.1, gz + 0.4, CANNON_YAW, 1.35)) {
+        B.cyl('metal', 0.22, 0.34, 3, 8, T(gx, y + wallH + 1.8, gz, 0, 1, 1, 1, Math.PI / 2), '#1c1c1e');
+        B.box('wood', 1.4, 0.6, 2.2, T(gx, y + wallH + 1.4, gz + 0.6), '#4a3522');
+      }
       this.cannons.push(this.toWorld(gx, gz - 1.5, y + wallH + 1.8));
     }
     // seaward gun line
     for (let k = -2; k <= 2; k++) {
       const gx = fa + k * 5, gz = fb - size - 1.2;
-      B.cyl('metal', 0.2, 0.3, 2.6, 8, T(gx, y + wallH + 0.2, gz, 0, 1, 1, 1, Math.PI / 2), '#1c1c1e');
+      if (!this.prop('cannon_01', gx, y + wallH - 0.5, gz + 1.2, CANNON_YAW, 1.25)) B.cyl('metal', 0.2, 0.3, 2.6, 8, T(gx, y + wallH + 0.2, gz, 0, 1, 1, 1, Math.PI / 2), '#1c1c1e');
       this.cannons.push(this.toWorld(gx, gz - 1.5, y + wallH + 0.2));
     }
     // flagstaff
@@ -586,6 +642,28 @@ export function buildSalvageCamp(scene, terrain, site) {
     B.box('metal', 1.42, 0.1, 0.92, T(a, y + 0.7, b), '#5a5a5a');
     for (let k = 0; k < 3; k++) B.box('metal', 0.9, 0.12, 0.22, T(a, y + 0.98, b - 0.25 + k * 0.25), '#d8d8e0');
     chests.push({ ...w, y });
+  }
+  // stores of the salvors: barrels, cargo, diving gear and the first chest brought up from the wrecks
+  const frame = new THREE.Matrix4().compose(new THREE.Vector3(c.x, 0, c.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), site.dir), new THREE.Vector3(1, 1, 1));
+  const put = (name, a, b, ry, s, dy = 0) => {
+    const w = toW(a, b);
+    return props.place(name, frame.clone().multiply(PM(a, terrain.height(w.x, w.z) + dy, b, ry, s)), 'salvage');
+  };
+  if (put('treasure_chest', 4, 9, 0.3, 1.2)) {
+    colliders.push({ a: 4, b: 9, hw: 0.7, hd: 0.5 });
+    for (let i = 0; i < 9; i++) {
+      const a = -24 + (i % 3) * 1.1 + (i > 5 ? 40 : 0), b = 20 + Math.floor(i / 3) * 1.1;
+      put('wine_barrel_01', a, b, rnd() * 6, 1.2);
+    }
+    colliders.push({ a: -23, b: 21, hw: 2, hd: 2 });
+    for (const [a, b] of [[20, 14], [24, 18], [-6, 26]]) {
+      put('old_military_crate', a, b, rnd(), 1);
+      put('old_military_crate', a, b, rnd() * 0.3, 1, 0.3);
+      put('wooden_crate_01', a, b, rnd(), 1.8, 0.6);
+      colliders.push({ a, b, hw: 1, hd: 1 });
+    }
+    put('wooden_bucket_01', 2, 36.5, 0, 1);
+    put('jug_01', -1.6, 34, 0, 1.6);
   }
   // campfire
   const fw = toW(0, 35);

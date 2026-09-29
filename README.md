@@ -6,8 +6,9 @@ Fleet, take prizes, trade, dig for buried treasure, and fight your way up to a d
 Navy fourth-rate. It plays like an open-world crime game with notoriety, pirate hunters and
 free-roaming ports, but at sea.
 
-Everything is procedural: no downloaded art or sound. The islands, towns, ships, characters,
-textures, music and sound effects are all generated in code at load time.
+The islands, towns, ships, textures, music and sound effects are generated in code at load time.
+People are rigged, motion-captured CC0 characters, and the world is dressed with photoscanned CC0
+props (see *Character models* and *Scanned props* below).
 
 ## Play
 
@@ -115,6 +116,19 @@ Roles: `captain`, `pirate`, `pirate_female`, `soldier_britain`, `soldier_spain`,
 `soldier_pirate`, `townsman`, `townswoman`, `sailor`, `merchant`. Clips are matched by name. If no
 models are present, the game falls back to its own procedural rig.
 
+## Scanned props
+
+Harbours, markets, forts, the salvage camp and the jungle floor are dressed with photoscanned CC0
+models from [Poly Haven](https://polyhaven.com): oak wine barrels, cargo crates, buckets, jugs,
+wicker baskets, a wooden ladder, candle lanterns (lit after dusk) on the street posts, iron cannon
+on naval carriages along the fort walls, and an iron-bound treasure chest when you dig up a hoard.
+Ferns, sorrel, rotting stumps, conch shells and surf-washed rock shelves are scattered across the
+islands. They are instanced per town and culled by distance.
+
+`node tools/build-props.mjs` downloads the models, simplifies them to a game budget (meshoptimizer)
+and writes WebP-textured GLBs to `public/models/props/`. If the folder is empty, the game falls back
+to its procedural props.
+
 ## A note on history
 
 The setting is real: the 1713 Peace of Utrecht, the wreck of the 1715 Plate Fleet off Florida,
@@ -127,7 +141,7 @@ French navy and the Dutch tricolour. The captain and the story are fiction.
 ```
 src/
   core/      noise, procedural textures, input, procedural audio & music
-  world/     terrain & islands, ocean, sky, weather, vegetation, towns, geometry batching
+  world/     terrain & islands, ocean, sky, weather, vegetation, towns, scanned props, geometry batching
   entities/  ship models, ship physics & AI, projectiles, effects, characters & NPCs
   game/      data (geography, ships, goods), save state & economy, missions
   ui/        HUD, minimap, sea chart, shops & menus

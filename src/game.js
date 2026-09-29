@@ -27,6 +27,7 @@ import { Projectiles } from './entities/projectiles.js';
 import { PlayerWalker, NPC, lookFor } from './entities/actors.js';
 import { modelLibrary } from './entities/modelLibrary.js';
 import { humans } from './entities/humans.js';
+import { props } from './world/props.js';
 import { ISLANDS, PORTS, NATIONS, SHIP_CLASSES, SHIP_NAMES, GOODS, SALVAGE_CAMP, MONTHS } from './game/data.js';
 import { GameState } from './game/state.js';
 import { Missions } from './game/missions.js';
@@ -100,6 +101,8 @@ export class Game {
     const scene = (this.scene = new THREE.Scene());
     this.camera = new THREE.PerspectiveCamera(this.state.settings.fov, window.innerWidth / window.innerHeight, 0.3, 24000);
 
+    await step(0.1, 'Stowing the cargo…');
+    await props.load();
     await step(0.12, 'Surveying the islands…');
     this.terrain = new Terrain(ISLANDS);
     this.towns = {};
@@ -142,6 +145,8 @@ export class Game {
     };
     this.vegetation = new Vegetation(scene, this.terrain, avoid, q);
     this.wildlife = new Wildlife(scene, this.terrain);
+    this.props = props;
+    props.flush(scene, { shadows: q !== 'low', viewDist: q === 'low' ? 500 : 900 });
 
     await step(0.8, 'Mustering the crew…');
     await Promise.all([modelLibrary.load(), humans.load()]);
@@ -546,6 +551,7 @@ export class Game {
     sharedMaterials().windowLit.emissiveIntensity = night * 2.2;
     shipMaterials().window.emissiveIntensity = night * 2.5;
     for (const t of this.townList) if (t.group && t.center.distanceTo(this.camera.position) < 2500) t.update(dt, shipTime.value, night);
+    props.setNight(night);
 
     // input-driven modes
     if (this.mode === 'sail') this.updateSailing(dt);
@@ -571,6 +577,7 @@ export class Game {
     this.updatePickups(dt);
     this.effects.update(dt, this.sky, this.weather.fog);
     this.vegetation.update(dt, this.camera.position, this.wind.strength * (1 + this.sky.storm));
+    props.update(this.camera.position);
     this.wildlife.update(dt, this.focus, this.sky.nightFactor + this.sky.storm * 0.8);
     if (this.mode !== 'title') {
       this.updateNotoriety(dt);
@@ -1280,8 +1287,15 @@ export class Game {
     this.audio.ui('fanfare');
     this.ui.banner('Buried Treasure!', `${m.value} pieces of eight`);
     // chest prop
-    const chest = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.8), new THREE.MeshStandardMaterial({ color: '#5a3a1a', roughness: 0.7 }));
-    chest.position.set(m.x, this.terrain.height(m.x, m.z) + 0.3, m.z);
+    let chest = props.object('treasure_chest');
+    if (chest) {
+      chest.scale.setScalar(1.2);
+      chest.rotation.y = Math.atan2(this.walker.pos.x - m.x, this.walker.pos.z - m.z);
+      chest.position.set(m.x, this.terrain.height(m.x, m.z) - 0.15, m.z);
+    } else {
+      chest = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.8), new THREE.MeshStandardMaterial({ color: '#5a3a1a', roughness: 0.7 }));
+      chest.position.set(m.x, this.terrain.height(m.x, m.z) + 0.3, m.z);
+    }
     this.scene.add(chest);
     this.treasureMarkers.push(chest);
     this.spawnTreasureMarkers();

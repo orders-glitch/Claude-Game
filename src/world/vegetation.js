@@ -1,8 +1,10 @@
 // Instanced palms, jungle trees, bushes and rocks, chunked for culling, with wind sway in the shader.
 import * as THREE from 'three';
 import { mulberry32, clamp } from '../core/noise.js';
+import { props } from './props.js';
 
 const CHUNK = 700;
+const DETAIL_CHUNK = 120; // ground detail (ferns, shells, stumps) is culled much closer
 export const windUniforms = { uTime: { value: 0 }, uWind: { value: 1 } };
 
 function addSway(mat, amount) {
@@ -211,11 +213,30 @@ export class Vegetation {
       rock: { geo: rock, mat: new THREE.MeshStandardMaterial({ color: '#8a8272', roughness: 0.95, flatShading: true }), shadow: true },
     };
 
+    // scanned ground detail from Poly Haven, when available
+    const scanned = { fern: 'fern_02', sorrel: 'shrub_sorrel_01', stump: 'tree_stump_01', shell: 'lambis_shell', shelf: 'coast_rocks_01' };
+    const sway = { fern: 0.06, sorrel: 0.12 };
+    const typeMap = { palm: ['palmTrunk', 'palmCrown'], tree: ['treeTrunk', 'treeCanopy'], bush: ['bush'], rock: ['rock'] };
+    const detail = new Set();
+    for (const [kind, file] of Object.entries(scanned)) {
+      if (!props.has(file)) continue;
+      typeMap[kind] = props.parts[file].map((p, i) => {
+        const name = kind + i;
+        const mat = sway[kind] ? addSway(p.material, sway[kind]) : p.material;
+        this.types[name] = { geo: p.geometry, mat, shadow: kind === 'stump' || kind === 'shelf' };
+        return name;
+      });
+      if (kind !== 'shelf') detail.add(kind);
+    }
+    this.detailDist = quality === 'low' ? 110 : quality === 'medium' ? 170 : 230;
+
     const buckets = new Map(); // chunkKey -> type -> [matrices]
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), pv = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0), tiltAxis = new THREE.Vector3();
     const push = (type, x, y, z, rotY, scale, tilt = 0) => {
-      const key = Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
+      if (!typeMap[type]) return;
+      const d = detail.has(type);
+      const key = (d ? 'd' : '') + Math.floor(x / (d ? DETAIL_CHUNK : CHUNK)) + ',' + Math.floor(z / (d ? DETAIL_CHUNK : CHUNK));
       if (!buckets.has(key)) buckets.set(key, {});
       const b = buckets.get(key);
       (b[type] || (b[type] = [])).push([x, y, z, rotY, scale, tilt]);
@@ -257,14 +278,49 @@ export class Vegetation {
       }
     }
 
+    // understory and shoreline detail
+    if (detail.size || typeMap.shelf) {
+      for (const is of terrain.islands) {
+        const area = Math.PI * is.rx * is.rz;
+        const n = Math.floor(area / 55 * density);
+        const ax = is.rx + is.warpAmp, az = is.rz + is.warpAmp;
+        for (let i = 0; i < n; i++) {
+          const lx = (rnd() * 2 - 1) * ax, lz = (rnd() * 2 - 1) * az;
+          const x = is.x + lx * is.cos + lz * is.sin;
+          const z = is.z - lx * is.sin + lz * is.cos;
+          const h = terrain.height(x, z);
+          if (h < -1.5 || h > 70) continue;
+          if (avoid(x, z)) continue;
+          const r = rnd();
+          if (h < 1.1) {
+            // rock shelves breaking the surf line
+            if (r < 0.003 && h > -0.8) push('shelf', x, Math.max(h, -0.3) - 0.1, z, rnd() * 6, 0.2 + rnd() * 0.25);
+            continue;
+          }
+          const slope = 1 - terrain.normal(x, z).y;
+          if (slope > 0.5) continue;
+          if (h < 2.4) {
+            if (r < 0.03) push('shell', x, h - 0.01, z, rnd() * 6, 2.6 + rnd() * 1.4);
+            continue;
+          }
+          const jun = clamp(is.jungle + terrain.noise.noise2(x * 0.01, z * 0.01) * 0.35, 0, 1);
+          if (r < 0.22 + jun * 0.4) push('fern', x, h - 0.05, z, rnd() * 6, 1.7 + rnd() * 1.5);
+          else if (r < 0.3 + jun * 0.45) push('sorrel', x, h - 0.02, z, rnd() * 6, 5 + rnd() * 5);
+          else if (r < 0.315 + jun * 0.46) push('stump', x, h - 0.1, z, rnd() * 6, 0.9 + rnd() * 0.7);
+        }
+      }
+    }
+
     this.counts = {};
     for (const b of buckets.values()) for (const k in b) this.counts[k] = (this.counts[k] || 0) + b[k].length;
     // build instanced meshes per chunk
-    const typeMap = { palm: ['palmTrunk', 'palmCrown'], tree: ['treeTrunk', 'treeCanopy'], bush: ['bush'], rock: ['rock'] };
     for (const [key, b] of buckets) {
       const group = new THREE.Group();
-      const [cx, cz] = key.split(',').map(Number);
-      group.userData.center = new THREE.Vector3((cx + 0.5) * CHUNK, 0, (cz + 0.5) * CHUNK);
+      const d = key[0] === 'd';
+      const size = d ? DETAIL_CHUNK : CHUNK;
+      const [cx, cz] = key.replace('d', '').split(',').map(Number);
+      group.userData.center = new THREE.Vector3((cx + 0.5) * size, 0, (cz + 0.5) * size);
+      group.userData.detail = d;
       for (const kind in b) {
         const list = b[kind];
         for (const tName of typeMap[kind]) {
@@ -292,11 +348,11 @@ export class Vegetation {
   update(dt, camPos, wind = 1) {
     windUniforms.uTime.value += dt;
     windUniforms.uWind.value = wind;
-    const vd2 = this.viewDist * this.viewDist;
+    const vd2 = this.viewDist * this.viewDist, dd2 = this.detailDist * this.detailDist;
     for (const g of this.chunks.values()) {
       const c = g.userData.center;
       const dx = c.x - camPos.x, dz = c.z - camPos.z;
-      g.visible = dx * dx + dz * dz < vd2;
+      g.visible = dx * dx + dz * dz < (g.userData.detail ? dd2 : vd2);
     }
   }
 }
