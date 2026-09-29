@@ -16,6 +16,7 @@ import { Ocean } from './world/ocean.js';
 import { SkySystem } from './world/sky.js';
 import { Weather } from './world/weather.js';
 import { Vegetation } from './world/vegetation.js';
+import { Wildlife } from './world/wildlife.js';
 import { Town, buildSalvageCamp } from './world/town.js';
 import { sharedMaterials } from './world/builder.js';
 import { Ship, BALL_SPEED, GRAVITY } from './entities/ship.js';
@@ -136,6 +137,7 @@ export class Game {
       return false;
     };
     this.vegetation = new Vegetation(scene, this.terrain, avoid, q);
+    this.wildlife = new Wildlife(scene, this.terrain);
 
     await step(0.85, 'Casting cannon…');
     this.effects = new Effects(scene, this.ocean);
@@ -543,6 +545,7 @@ export class Game {
     this.updatePickups(dt);
     this.effects.update(dt, this.sky, this.weather.fog);
     this.vegetation.update(dt, this.camera.position, this.wind.strength * (1 + this.sky.storm));
+    this.wildlife.update(dt, this.focus, this.sky.nightFactor + this.sky.storm * 0.8);
     if (this.mode !== 'title') {
       this.updateNotoriety(dt);
       this.fillTraffic(false);
@@ -1332,9 +1335,9 @@ export class Game {
   }
 
   blockedAt(x, z, r, y) {
-    if (y > 9) return false;
     for (const list of this.collidersNear(x, z)) {
       for (const c of list) {
+        if (y > (c.top ?? 12)) continue;
         const dx = x - c.x, dz = z - c.z;
         const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
         if (Math.abs(lx) < c.hw + r && Math.abs(lz) < c.hd + r) return true;

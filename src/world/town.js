@@ -94,10 +94,10 @@ export class Town {
 
   reserve(a, b, hw, hd) { this.lots.push({ a, b, hw, hd }); }
 
-  addCollider(a, b, hw, hd, rot = 0) {
+  addCollider(a, b, hw, hd, rot = 0, height = 12) {
     const w = this.toWorld(a, b);
     const ang = this.dir + rot; // local axes rotate with town
-    this.colliders.push({ x: w.x, z: w.z, hw, hd, cos: Math.cos(ang), sin: Math.sin(ang) });
+    this.colliders.push({ x: w.x, z: w.z, hw, hd, cos: Math.cos(ang), sin: Math.sin(ang), top: this.level + height });
   }
 
   // ---------------------------------------------------------------- build
@@ -187,12 +187,12 @@ export class Town {
       if (rnd() < 0.55) {
         const n = 1 + Math.floor(rnd() * 4);
         for (let k = 0; k < n; k++) this.barrel(B, a + (k % 2) * 1.1, y, b + Math.floor(k / 2) * 1.1);
-        this.addCollider(a + 0.5, b + 0.5, 1.3, 1.3);
+        this.addCollider(a + 0.5, b + 0.5, 1.3, 1.3, 0, 1.2);
       } else {
         const s = 1 + rnd() * 0.5;
         B.box('wood', s, s, s, T(a, y + s / 2, b, rnd()), '#a78a62');
         if (rnd() < 0.5) B.box('wood', s * 0.8, s * 0.8, s * 0.8, T(a + 0.1, y + s * 1.4, b, rnd()), '#9c7f58');
-        this.addCollider(a, b, s * 0.6, s * 0.6);
+        this.addCollider(a, b, s * 0.6, s * 0.6, 0, 2);
       }
     }
     // lantern posts
@@ -463,7 +463,7 @@ export class Town {
     if (this.port.style !== 'shanty') B.cyl('stone', 19, 19, 0.12, 28, T(a, y + 0.03, b), '#b3a68e');
     B.cyl('stone', 2.4, 2.6, 0.9, 16, T(a, y + 0.45, b), '#bfb4a0');
     B.cyl('stone', 0.4, 0.5, 2.2, 8, T(a, y + 1.1, b), '#bfb4a0');
-    this.addCollider(a, b, 2.5, 2.5);
+    this.addCollider(a, b, 2.5, 2.5, 0, 2);
     const colors = ['#b5462e', '#d9c7a0', '#3d6a8a', '#c9a13a', '#6f8a4a'];
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2;
@@ -481,7 +481,7 @@ export class Town {
       for (let k = 0; k < 4; k++) {
         B.box('plain', 0.5, 0.35, 0.5, T(sa + (k - 1.5) * 0.65 * Math.cos(r), sy + 1.2, sb - (k - 1.5) * 0.65 * Math.sin(r), rnd()), rpick(['#c9a24a', '#8a3a2a', '#6a8a3a', '#d8c8a0', '#5a3a1a']));
       }
-      this.addCollider(sa, sb, 1.7, 1.1, r);
+      this.addCollider(sa, sb, 1.7, 1.1, r, 2.5);
     }
   }
 

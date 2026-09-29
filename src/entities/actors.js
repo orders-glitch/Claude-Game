@@ -216,7 +216,7 @@ export class PlayerWalker extends Walker {
     // keep the camera out of the ground and walls
     for (let t = 0.5; t <= dist; t += 0.5) {
       const p = head.clone().addScaledVector(back, t);
-      if (this.game.groundAt(p.x, p.z) > p.y - 0.3 || this.game.blockedAt(p.x, p.z, 0.2, p.y)) { d = Math.max(0.8, t - 0.5); break; }
+      if (this.game.groundAt(p.x, p.z) > p.y - 0.3 || this.game.blockedAt(p.x, p.z, 0.2, p.y)) { d = Math.max(1.4, t - 0.5); break; }
     }
     this.curCamDist = damp(this.curCamDist || d, d, d < (this.curCamDist || d) ? 30 : 6, dt);
     const target = head.clone().addScaledVector(back, this.curCamDist);
