@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { weaponMesh } from './rig.js';
+import { props } from '../world/props.js';
 
 const BASE = './models/characters/';
 const _v0 = new THREE.Vector3(), _v1 = new THREE.Vector3();
@@ -112,6 +113,41 @@ function splitClip(clip, upper, keepUpper) {
   return new THREE.AnimationClip(clip.name + (keepUpper ? '_upper' : '_lower'), clip.duration, tracks);
 }
 
+// ---------------------------------------------------------------- hand grips
+// Hand-local frame from the finger bones: A runs across the knuckles towards the index finger, F from the
+// wrist towards the knuckles, P out of the palm. Works for any rig with index/middle/pinky bones.
+function handFrame(hand) {
+  const find = (re) => hand.children.find((c) => c.isBone && re.test(c.name));
+  const idx = find(/index/i), pk = find(/pinky|little/i), mid = find(/middle/i), th = find(/thumb/i);
+  if (!idx || !pk || !mid) return null;
+  const A = idx.position.clone().sub(pk.position).normalize();
+  const K = mid.position.clone();
+  const F = K.clone().normalize();
+  F.addScaledVector(A, -F.dot(A)).normalize();
+  const P = new THREE.Vector3().crossVectors(A, F).normalize();
+  if (th && P.dot(th.position) < 0) P.negate();
+  // centre of the closed fist: short of the knuckles, a little towards the palm
+  const center = K.clone().multiplyScalar(0.62).addScaledVector(P, K.length() * 0.22);
+  return { A, F, P, center };
+}
+
+// quaternion whose X/Y/Z axes are the given (orthonormalised) hand-space vectors
+function basis(x, y) {
+  const Y = y.clone().normalize();
+  const X = x.clone().addScaledVector(Y, -x.dot(Y)).normalize();
+  const Z = new THREE.Vector3().crossVectors(X, Y);
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z));
+}
+
+const GRIPS = {
+  // blade leaves the fist on the index side, edge towards the knuckles
+  cutlass: { frame: (f) => basis(f.F, f.A.clone().addScaledVector(f.F, 0.25).negate()), offset: [0, 0, 0] },
+  spade: { frame: (f) => basis(f.F, f.A.clone().addScaledVector(f.F, 0.1).negate()), offset: [0, 0.25, 0] },
+  // guns: barrel forward along the knuckles, the grip (+Z) runs down through the fist
+  pistol: { frame: (f) => basis(new THREE.Vector3().crossVectors(f.F, f.A), f.F.clone().negate()), offset: [0, 0, 0] },
+  musket: { frame: (f) => basis(new THREE.Vector3().crossVectors(f.F, f.A), f.F.clone().negate()), offset: [0, 0, 0] },
+};
+
 // ---------------------------------------------------------------- per-character instance
 export class GltfRig {
   // entry: prepared model description; prebuilt: an already-assembled unique model (skips cloning)
@@ -143,6 +179,7 @@ export class GltfRig {
       this.socketR.scale.setScalar(1 / (ws.x * entry.scale || 1));
       if (entry.socket) { this.socketR.position.fromArray(entry.socket.pos || [0, 0, 0]); this.socketR.rotation.fromArray(entry.socket.rot || [0, 0, 0]); }
       hand.add(this.socketR);
+      if (!entry.socket && !entry.weaponRot) this.grip = handFrame(hand);
     }
     this.hasHand = !!hand;
 
@@ -185,8 +222,20 @@ export class GltfRig {
     if (this.weaponKind === kind) return;
     this.weaponKind = kind;
     if (this.weapon) this.socketR.remove(this.weapon);
-    this.weapon = kind && this.hasHand ? weaponMesh(kind) : null;
-    if (this.weapon) {
+    // scanned blades where available (a cutlass may be carried as a saber, machete or boarding hatchet)
+    const scanned = kind === 'cutlass' ? props.weapon(this.blade || 'wooden_handle_saber') : null;
+    if (scanned) scanned.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    this.weapon = kind && this.hasHand ? (scanned || weaponMesh(kind)) : null;
+    if (this.weapon && this.grip) {
+      // a real fist grip derived from the knuckle bones (weapons are modelled blade/barrel along -Y)
+      const G = GRIPS[kind] || GRIPS.cutlass;
+      const f = this.grip;
+      this.socketR.position.copy(f.center);
+      this.socketR.quaternion.copy(G.frame(f));
+      this.weapon.position.fromArray(G.offset);
+      this.weapon.rotation.set(0, 0, 0);
+      this.socketR.add(this.weapon);
+    } else if (this.weapon) {
       // in the socket, point the blade/barrel away from the wrist
       const r = this.entry.weaponRot?.[kind];
       if (r) this.weapon.rotation.fromArray(r); else this.weapon.rotation.set(kind === 'musket' ? 0 : Math.PI, 0, 0);
@@ -220,8 +269,9 @@ export class GltfRig {
     const upper = Math.min(1, wS + wP + wM);
     if (slashing) A.slash.time = Math.min(0.999, st.attack) * A.slash.getClip().duration;
     setW('slash', wS);
-    setW('aimPistol', wP * (1 - wS));
-    setW('aimMusket', wM * (1 - wS));
+    // both aims may share one clip (and therefore one action): set it once with the combined weight
+    if (A.aimMusket === A.aimPistol) setW('aimPistol', Math.min(1, wP + wM) * (1 - wS));
+    else { setW('aimPistol', wP * (1 - wS)); setW('aimMusket', wM * (1 - wS)); }
     setW('dig', wD);
 
     const s = st.speed || 0;

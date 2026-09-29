@@ -595,20 +595,39 @@ export function weaponMesh(kind) {
       const grip = new THREE.CylinderGeometry(0.016, 0.018, 0.11, 6); grip.translate(0, -0.01, 0);
       parts.push(colorGeo(grip, '#2a1d12'));
     } else if (kind === 'pistol') {
-      const barrel = new THREE.CylinderGeometry(0.012, 0.015, 0.3, 8); barrel.translate(0, -0.2, 0);
+      // flintlock pistol; origin at the middle of the grip, barrel forward (-Y), butt down (+Z)
+      const g = new THREE.Vector3(0, 0.42, 1).normalize();
+      const grip = new THREE.BoxGeometry(0.026, 0.034, 0.12);
+      grip.lookAt(g); // box Z along the grip direction
+      parts.push(colorGeo(grip, '#5a3a22'));
+      const pommel = new THREE.SphereGeometry(0.024, 8, 6); pommel.scale(0.9, 1.2, 1); pommel.translate(g.x * 0.07, g.y * 0.07, g.z * 0.07);
+      parts.push(colorGeo(pommel, '#b8942a'));
+      const top = g.clone().multiplyScalar(-0.06);
+      const stock = new THREE.BoxGeometry(0.028, 0.2, 0.03); stock.translate(0, top.y - 0.09, top.z - 0.004);
+      parts.push(colorGeo(stock, '#5a3a22'));
+      const barrel = new THREE.CylinderGeometry(0.009, 0.011, 0.26, 10); barrel.translate(0, top.y - 0.16, top.z - 0.024);
       parts.push(colorGeo(barrel, '#2e2e30'));
-      const stock = new THREE.BoxGeometry(0.035, 0.16, 0.05); stock.rotateX(-0.5); stock.translate(0, -0.02, 0.03);
-      parts.push(colorGeo(stock, '#5a3a22'));
-      const lock = new THREE.BoxGeometry(0.02, 0.05, 0.03); lock.translate(0.02, -0.07, 0.0);
+      const muzzle = new THREE.CylinderGeometry(0.012, 0.012, 0.012, 10); muzzle.translate(0, top.y - 0.285, top.z - 0.024);
+      parts.push(colorGeo(muzzle, '#b8942a'));
+      const lock = new THREE.BoxGeometry(0.008, 0.055, 0.022); lock.translate(0.016, top.y - 0.005, top.z - 0.01);
       parts.push(colorGeo(lock, '#8a8a8a'));
+      const cock = new THREE.BoxGeometry(0.006, 0.012, 0.03); cock.rotateX(-0.6); cock.translate(0.016, top.y + 0.022, top.z - 0.03);
+      parts.push(colorGeo(cock, '#6a6a6a'));
+      const guard = new THREE.TorusGeometry(0.018, 0.003, 4, 10, Math.PI); guard.rotateY(Math.PI / 2); guard.translate(0, top.y - 0.03, top.z + 0.012);
+      parts.push(colorGeo(guard, '#b8942a'));
     } else if (kind === 'musket') {
-      const barrel = new THREE.CylinderGeometry(0.012, 0.014, 1.05, 8); barrel.translate(0, -0.55, 0);
+      // Brown Bess-style musket; origin at the wrist of the stock, barrel forward (-Y), butt back (+Y)
+      const barrel = new THREE.CylinderGeometry(0.01, 0.013, 1.05, 8); barrel.translate(0, -0.5, -0.045);
       parts.push(colorGeo(barrel, '#3a3a3c'));
-      const stock = new THREE.BoxGeometry(0.045, 0.75, 0.07); stock.translate(0, -0.1, 0.012);
-      parts.push(colorGeo(stock, '#5a3a22'));
-      const butt = new THREE.BoxGeometry(0.05, 0.2, 0.12); butt.translate(0, 0.33, 0.03);
+      const fore = new THREE.BoxGeometry(0.036, 0.8, 0.035); fore.translate(0, -0.36, -0.022);
+      parts.push(colorGeo(fore, '#5a3a22'));
+      const wrist = new THREE.BoxGeometry(0.032, 0.16, 0.04); wrist.rotateX(-0.25); wrist.translate(0, 0.07, 0.005);
+      parts.push(colorGeo(wrist, '#5a3a22'));
+      const butt = new THREE.BoxGeometry(0.042, 0.26, 0.11); butt.rotateX(-0.2); butt.translate(0, 0.27, 0.06);
       parts.push(colorGeo(butt, '#5a3a22'));
-      const bayonet = new THREE.BoxGeometry(0.01, 0.3, 0.01); bayonet.translate(0.018, -1.2, 0);
+      const lock = new THREE.BoxGeometry(0.008, 0.07, 0.025); lock.translate(0.02, -0.04, -0.03);
+      parts.push(colorGeo(lock, '#8a8a8a'));
+      const bayonet = new THREE.BoxGeometry(0.01, 0.34, 0.006); bayonet.translate(0.016, -1.18, -0.045);
       parts.push(colorGeo(bayonet, '#cfd3d6'));
     } else if (kind === 'spade') {
       const shaft = new THREE.CylinderGeometry(0.015, 0.015, 0.9, 6); shaft.translate(0, -0.3, 0);

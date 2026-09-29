@@ -33,6 +33,19 @@ import { GameState } from './game/state.js';
 import { Missions } from './game/missions.js';
 import { UI } from './ui/ui.js';
 
+// Scrubs NaN / overflowed pixels (some GPUs produce them from edge-case maths) before bloom can smear a
+// single bad pixel across the whole frame as a black flash.
+const SANITIZE_SHADER = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      bool bad = !(c.r >= 0.0 && c.r < 6.0e4) || !(c.g >= 0.0 && c.g < 6.0e4) || !(c.b >= 0.0 && c.b < 6.0e4);
+      gl_FragColor = bad ? vec4(0.0, 0.0, 0.0, 1.0) : vec4(c.rgb, 1.0);
+    }`,
+};
+
 const GRADE_SHADER = {
   uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uVignette: { value: 0.32 }, uSat: { value: 1.08 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
@@ -162,6 +175,7 @@ export class Game {
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: q === 'low' ? 0 : 4 });
     this.composer = new EffectComposer(renderer, rt);
     this.composer.addPass(new RenderPass(scene, this.camera));
+    this.composer.addPass(new ShaderPass(SANITIZE_SHADER));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.35, 0.5, 1.6);
     if (q !== 'low') this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());

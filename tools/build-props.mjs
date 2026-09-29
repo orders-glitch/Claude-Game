@@ -24,6 +24,7 @@ const ASSETS = {
   jug_01: [800, 512], wicker_basket_01: [2000, 512], old_military_crate: [1200, 512], lambis_shell: [600, 256],
   fern_02: [1100, 512], shrub_sorrel_01: [700, 512], tree_stump_01: [1500, 512],
   coast_rocks_01: [4000, 1024], wooden_ladder: [800, 512],
+  wooden_handle_saber: [3000, 512], machete: [1500, 512], hatchet: [1500, 512],
   ...Object.fromEntries((process.env.EXTRA || '').split(',').filter(Boolean).map((s) => { const [k, t, x] = s.split(':'); return [k, [+t, +x]]; })),
 };
 const only = process.argv.slice(2);

@@ -8,7 +8,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const FILES = [
   'wine_barrel_01', 'wooden_crate_01', 'wooden_crate_02', 'old_military_crate', 'wooden_bucket_01',
   'wooden_lantern_01', 'treasure_chest', 'cannon_01', 'jug_01', 'wicker_basket_01', 'lambis_shell', 'fern_02',
-  'shrub_sorrel_01', 'tree_stump_01', 'coast_rocks_01', 'wooden_ladder',
+  'shrub_sorrel_01', 'tree_stump_01', 'coast_rocks_01', 'wooden_ladder', 'wooden_handle_saber', 'machete', 'hatchet',
 ];
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _p = new THREE.Vector3();
@@ -18,6 +18,13 @@ export function PM(x, y, z, ry = 0, s = 1, rx = 0, rz = 0) {
   _e.set(rx, ry, rz, 'YXZ');
   return new THREE.Matrix4().compose(_p.set(x, y, z), _q.setFromEuler(_e), _s.setScalar(s));
 }
+
+// Poly Haven blades: where the grip centre sits along the model's +Y blade axis, and which Z side is the edge
+const WEAPONS = {
+  wooden_handle_saber: { grip: -0.035, edge: -1 },
+  machete: { grip: -0.11, edge: -1 },
+  hatchet: { grip: 0.02, edge: 1 },
+};
 
 class Props {
   constructor() {
@@ -78,6 +85,21 @@ class Props {
       g.add(m);
     }
     return g;
+  }
+
+  // a hand weapon re-oriented to the game's convention: grip centre at the origin, blade along -Y, edge +X
+  weapon(name) {
+    const W = WEAPONS[name];
+    const o = W && this.object(name);
+    if (!o) return null;
+    o.position.y = -W.grip;
+    const g = new THREE.Group();
+    g.add(o);
+    // model +Y (blade) -> -Y, then the edge side -> +X
+    g.quaternion.setFromEuler(new THREE.Euler(Math.PI, W.edge > 0 ? -Math.PI / 2 : Math.PI / 2, 0, 'YXZ'));
+    const outer = new THREE.Group();
+    outer.add(g);
+    return outer;
   }
 
   // turn queued placements into instanced meshes

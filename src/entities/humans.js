@@ -295,9 +295,6 @@ class Humans {
         scale, groundY: -this.rawFeet * scale, clips: this.clips, upper: up, handR: 'hand_r',
         armR: 'upperarm_r', foreR: 'lowerarm_r', armL: 'upperarm_l', foreL: 'lowerarm_l',
         rotateY: Math.PI, hideMeshes: [], file: 'humans',
-        // weapon orientation inside the hand bone (tuned by eye)
-        weaponRot: { cutlass: [-1.2, 0, 0], pistol: [Math.PI, 0, 0], musket: [Math.PI, 0, 0], spade: [-1.2, 0, 0] },
-        socket: { pos: [0, 0, 0], rot: [0, 0, 0] },
       };
     }
     return this._entry;

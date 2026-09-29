@@ -237,7 +237,8 @@ void main() {
     float star = step(0.9965, h) * smoothstep(0.5, 0.0, length(fract(sp) - 0.5));
     float tw = 0.6 + 0.4 * sin(uTime * (2.0 + h * 5.0) + h * 40.0);
     // faint milky way band
-    float band = exp(-pow(dot(d, normalize(vec3(0.4, 0.3, 0.86))) * 3.2, 2.0)) * fbm(d.xz * 9.0 + d.y * 3.0);
+    float bd = dot(d, normalize(vec3(0.4, 0.3, 0.86))) * 3.2;
+    float band = exp(-bd * bd) * fbm(d.xz * 9.0 + d.y * 3.0);
     col += (vec3(star * tw * 1.6) + vec3(0.06, 0.07, 0.1) * band) * uNight * smoothstep(-0.05, 0.15, y) * (1.0 - uStorm);
     float md = dot(d, normalize(uMoonDir));
     float moon = smoothstep(0.99935, 0.9995, md);

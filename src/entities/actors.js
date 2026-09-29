@@ -25,6 +25,8 @@ export class Walker {
     if (role) this.rig = new GltfRig(modelLibrary.pick(role));
     else if (humans.has() && look.role) this.rig = humans.create(look.role);
     else this.rig = new CharacterRig(look);
+    // pirates and sailors carry whatever blade they could get; officers and soldiers a proper sabre
+    if (/pirate|sailor/.test(look.role || '')) { const r = Math.random(); this.rig.blade = r < 0.35 ? 'machete' : r < 0.55 ? 'hatchet' : 'wooden_handle_saber'; }
     this.root = this.rig.root;
     this.pos = new THREE.Vector3(opts.x || 0, opts.y || 0, opts.z || 0);
     this.yaw = opts.yaw || 0;

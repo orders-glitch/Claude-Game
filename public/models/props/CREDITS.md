@@ -21,3 +21,6 @@ All models in this folder come from [Poly Haven](https://polyhaven.com) and are 
 | shrub_sorrel_01.glb | https://polyhaven.com/a/shrub_sorrel_01 |
 | tree_stump_01.glb | https://polyhaven.com/a/tree_stump_01 |
 | coast_rocks_01.glb | https://polyhaven.com/a/coast_rocks_01 |
+| wooden_handle_saber.glb | https://polyhaven.com/a/wooden_handle_saber |
+| machete.glb | https://polyhaven.com/a/machete |
+| hatchet.glb | https://polyhaven.com/a/hatchet |
