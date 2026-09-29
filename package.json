@@ -1,0 +1,18 @@
+{
+  "name": "brethren-of-the-coast",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Brethren of the Coast — an open-world Golden Age of Piracy game for the web (Caribbean, 1716).",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.1"
+  }
+}

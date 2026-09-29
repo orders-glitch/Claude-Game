@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Brethren of the Coast — Caribbean, 1716</title>
+  <meta name="description" content="An open-world Golden Age of Piracy adventure in the browser. Sail, fight, trade and plunder across the West Indies of 1716." />
+  <meta name="theme-color" content="#0b0a08" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%230b0b0b'/%3E%3Ccircle cx='32' cy='26' r='13' fill='%23efe8d8'/%3E%3Ccircle cx='27' cy='25' r='3.5' fill='%230b0b0b'/%3E%3Ccircle cx='37' cy='25' r='3.5' fill='%230b0b0b'/%3E%3Cpath d='M12 44 L52 58 M52 44 L12 58' stroke='%23efe8d8' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=Pirata+One&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- Loading -->
+  <div id="loading" class="screen">
+    <div class="load-inner">
+      <div class="logo small">Brethren<span>of the</span>Coast</div>
+      <div class="load-bar"><div id="load-fill"></div></div>
+      <div id="load-text">Charting the West Indies…</div>
+    </div>
+  </div>
+
+  <!-- Title -->
+  <div id="title" class="screen hidden">
+    <div class="title-inner">
+      <div class="logo">Brethren<span>of the</span>Coast</div>
+      <div class="subtitle">The West Indies · Anno Domini 1716</div>
+      <div class="menu" id="title-menu">
+        <button data-act="continue" id="btn-continue">Continue Voyage</button>
+        <button data-act="new">New Voyage</button>
+        <button data-act="settings">Settings</button>
+        <button data-act="controls">Ship's Articles <small>(controls)</small></button>
+      </div>
+      <div id="save-summary"></div>
+      <div id="newgame" class="panel hidden">
+        <h2>Sign the Articles</h2>
+        <label>Your name, Captain<input id="captain-name" maxlength="24" value="James Kidd" /></label>
+        <label>Name your sloop<input id="ship-name" maxlength="24" value="Ranger" /></label>
+        <div class="row"><button data-act="begin">Set Sail</button><button data-act="back" class="ghost">Back</button></div>
+      </div>
+    </div>
+    <div class="title-foot">A work of historical fiction. Nassau, the Plate Fleet wrecks, Hornigold and HMS Scarborough are real; you are not.</div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="hud-tl">
+      <div id="hud-date"></div>
+      <div id="hud-time"></div>
+      <div id="hud-weather"></div>
+    </div>
+    <div id="hud-tr">
+      <div id="hud-gold"><span class="coin"></span><b id="gold-val">0</b></div>
+      <div id="hud-wanted"></div>
+    </div>
+    <div id="objective" class="hidden"><div class="obj-label">Objective</div><div id="obj-text"></div></div>
+    <div id="compass-strip"><div id="compass-inner"></div><div id="compass-marker"></div></div>
+    <div id="toasts"></div>
+    <div id="prompt" class="hidden"></div>
+    <div id="minimap-wrap"><canvas id="minimap" width="220" height="220"></canvas><div id="mm-wind"></div></div>
+    <div id="ship-panel">
+      <div class="bars">
+        <div class="bar"><label>Hull</label><div class="track"><div id="bar-hull" class="fill hull"></div></div></div>
+        <div class="bar"><label>Sails</label><div class="track"><div id="bar-sails" class="fill sails"></div></div></div>
+        <div class="bar"><label>Crew</label><div class="track"><div id="bar-crew" class="fill crew"></div></div><span id="crew-val"></span></div>
+      </div>
+      <div class="ship-row">
+        <div id="speed"><b id="speed-val">0</b><small>knots</small><div id="pos-sail"></div></div>
+        <div id="sail-pips"><span></span><span></span></div>
+        <div id="ammo"></div>
+      </div>
+      <div class="reload"><div id="rl-port" class="rl"><div></div><label>Larboard</label></div><div id="rl-star" class="rl"><div></div><label>Starboard</label></div></div>
+    </div>
+    <div id="foot-panel" class="hidden">
+      <div class="bar"><label>Health</label><div class="track"><div id="bar-health" class="fill health"></div></div></div>
+      <div id="pistols"></div>
+    </div>
+    <div id="target-info" class="hidden"></div>
+    <div id="crosshair" class="hidden"></div>
+    <div id="aim-hint" class="hidden"></div>
+    <div id="damage"></div>
+    <div id="fps" class="hidden"></div>
+  </div>
+
+  <!-- Modal layers -->
+  <div id="dialog" class="modal hidden"><div class="parch"><div id="dlg-speaker"></div><div id="dlg-text"></div><div class="row right"><button id="dlg-next">Continue ▸</button></div></div></div>
+  <div id="shop" class="modal hidden"><div class="parch wide"><div class="shop-head"><h2 id="shop-title"></h2><div id="shop-gold"></div><button class="close" data-close>✕</button></div><div id="shop-tabs"></div><div id="shop-body"></div></div></div>
+  <div id="chart" class="modal hidden"><div class="chart-wrap"><canvas id="chart-canvas"></canvas><div id="chart-info"></div><button class="close" data-close>✕</button></div></div>
+  <div id="pause" class="modal hidden"><div class="parch"><h2>Hove To</h2><div class="menu">
+    <button data-act="resume">Resume</button>
+    <button data-act="log">Captain's Log</button>
+    <button data-act="save">Save Game</button>
+    <button data-act="settings">Settings</button>
+    <button data-act="controls">Controls</button>
+    <button data-act="quit">Quit to Title</button>
+  </div></div></div>
+  <div id="settings" class="modal hidden"><div class="parch"><h2>Settings</h2>
+    <label>Graphics quality <select id="set-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+    <label>Master volume <input type="range" id="set-master" min="0" max="1" step="0.05" /></label>
+    <label>Music volume <input type="range" id="set-music" min="0" max="1" step="0.05" /></label>
+    <label>Effects volume <input type="range" id="set-sfx" min="0" max="1" step="0.05" /></label>
+    <label>Mouse sensitivity <input type="range" id="set-sens" min="0.3" max="2.5" step="0.05" /></label>
+    <label>Field of view <input type="range" id="set-fov" min="45" max="85" step="1" /></label>
+    <label class="check"><input type="checkbox" id="set-invert" /> Invert mouse Y</label>
+    <label class="check"><input type="checkbox" id="set-fps" /> Show frame rate</label>
+    <p class="note">Quality changes apply after reloading the page.</p>
+    <div class="row right"><button data-close>Done</button></div></div></div>
+  <div id="controls" class="modal hidden"><div class="parch wide"><h2>The Ship's Articles</h2>
+    <div class="cols">
+      <div><h3>At the Helm</h3><ul>
+        <li><kbd>W</kbd>/<kbd>S</kbd> make / shorten sail</li>
+        <li><kbd>A</kbd>/<kbd>D</kbd> helm to larboard / starboard</li>
+        <li><kbd>Mouse</kbd> look around · <kbd>Wheel</kbd> zoom</li>
+        <li><kbd>Left Click</kbd> fire the broadside facing your view</li>
+        <li><kbd>Q</kbd>/<kbd>E</kbd> fire larboard / starboard guns</li>
+        <li><kbd>Right Click</kbd> spyglass (hold) · raise to aim higher</li>
+        <li><kbd>1</kbd> round · <kbd>2</kbd> chain · <kbd>3</kbd> grape shot</li>
+        <li><kbd>F</kbd> board a struck prize · go ashore · dock</li>
+        <li><kbd>G</kbd> hoist the Jolly Roger / false colours</li>
+        <li><kbd>R</kbd> drop / weigh anchor</li>
+      </ul></div>
+      <div><h3>Ashore</h3><ul>
+        <li><kbd>WASD</kbd> walk · <kbd>Shift</kbd> run · <kbd>Space</kbd> jump</li>
+        <li><kbd>Left Click</kbd> cutlass (click again to combo)</li>
+        <li><kbd>Right Click</kbd> aim flintlock · <kbd>Left Click</kbd> fire</li>
+        <li><kbd>E</kbd> enter shops · talk · dig · loot</li>
+        <li><kbd>F</kbd> return to your ship</li>
+      </ul><h3>Anywhere</h3><ul>
+        <li><kbd>M</kbd> sea chart (fast travel to known ports)</li>
+        <li><kbd>Tab</kbd> captain's log</li>
+        <li><kbd>Esc</kbd> pause</li>
+      </ul></div>
+    </div>
+    <p class="note">Every captain signs the articles. Notoriety rises when you attack a nation's ships or subjects — at two skulls their navy hunts you, at four their pirate-hunters never give up. Lie low, pay off governors, or take pardons through contracts to cool your name.</p>
+    <div class="row right"><button data-close>Aye</button></div></div></div>
+  <div id="log" class="modal hidden"><div class="parch wide"><h2>Captain's Log</h2><div id="log-body"></div><div class="row right"><button data-close>Close</button></div></div></div>
+  <div id="banner" class="hidden"><div class="banner-title"></div><div class="banner-sub"></div></div>
+  <div id="fade"></div>
+  <div id="wasted" class="hidden"><div class="w-title"></div><div class="w-sub"></div></div>
+  <div id="finale" class="modal hidden"><div class="parch"><h2>Pirate King of the Indies</h2><p id="finale-text"></p><div class="row right"><button data-close>Sail On</button></div></div></div>
+  <div id="click-to-play" class="hidden">Click to take the helm</div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
