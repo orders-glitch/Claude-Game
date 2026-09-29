@@ -227,7 +227,10 @@ void main() {
   vec3 n1 = texture2D(uNormalMap, uv * 0.018 + vec2(uTime * 0.012, uTime * 0.007)).xyz * 2.0 - 1.0;
   vec3 n2 = texture2D(uNormalMap, uv * 0.061 - vec2(uTime * 0.018, -uTime * 0.021)).xyz * 2.0 - 1.0;
   vec3 n3 = texture2D(uNormalMap, uv * 0.33 + vec2(uTime * 0.09, uTime * 0.05)).xyz * 2.0 - 1.0;
-  vec2 dn = (n1.xy * 0.55 + n2.xy * 0.45 + n3.xy * (0.12 + uRain * 0.9) * (1.0 - smoothstep(40.0, 400.0, dist))) * (0.35 + 0.25 * uSea) * detailFade;
+  float farFade = 1.0 - smoothstep(1200.0, 5000.0, dist);
+  vec2 dn = (n2.xy * 0.45 + n3.xy * (0.12 + uRain * 0.9) * (1.0 - smoothstep(40.0, 400.0, dist))) * detailFade
+          + n1.xy * 0.55 * max(detailFade, farFade * 0.8);
+  dn *= 0.35 + 0.25 * uSea;
   vec3 N = normalize(vNormal + vec3(dn.x, 0.0, dn.y));
 
   // bathymetry from the baked terrain heightmap
@@ -254,11 +257,12 @@ void main() {
 
   // reflections
   vec3 R = reflect(-V, N);
-  R.y = abs(R.y);
+  R.y = abs(R.y) + 0.05;
+  R = normalize(R);
   vec3 refl = skyColor(R);
   float fres = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
   fres = mix(fres, fres * 0.5, veryShallow);
-  vec3 col = mix(lit, refl * 0.9, fres * 0.8);
+  vec3 col = mix(lit, refl * 0.82, fres * 0.8);
 
   // sun glitter
   vec3 H = normalize(L + V);

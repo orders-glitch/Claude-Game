@@ -166,7 +166,10 @@ export class Game {
     this.setupTitle();
     // warm-up render (compiles shaders)
     this.sky.update(0.016, this.state.hours, this.camera, this.focus);
-    this.renderer.compile(scene, this.camera);
+    this.updateTitle(0.016);
+    // compile every shader before revealing the world (avoids pop-in while programs link)
+    await step(0.98, 'Tarring the rigging…');
+    try { await this.renderer.compileAsync(scene, this.camera); } catch (e) { this.renderer.compile(scene, this.camera); }
     this.composer.render();
     await step(1, 'Ready.');
     this.ui.hideLoading();
@@ -203,7 +206,7 @@ export class Game {
   setupTitle() {
     this.mode = 'title';
     this.clearWorld();
-    this.state.hours = 17.4;
+    this.state.hours = 16.6;
     this.weather.force('fair');
     const n = this.towns.nassau;
     const s = this.spawnShip('brigantine', 'pirate', { role: 'pirate', name: 'Revenge', x: n.coast.x + 350, z: n.coast.z - 420, heading: -Math.PI / 2 + 0.3, patrol: true });
@@ -398,6 +401,7 @@ export class Game {
   // ======================================================================== modes
   enterSail() {
     this.mode = 'sail';
+    this.ui.hint('[W]/[S] make or shorten sail · [A]/[D] helm · look to a side and [Left Click] to fire · [1][2][3] shot · [F] dock / board · [M] chart');
     const p = this.playerShip;
     p.anchored = false;
     this.camYaw = p.heading + 0.35;
@@ -409,6 +413,7 @@ export class Game {
 
   enterFoot(pos, town) {
     this.mode = 'foot';
+    this.ui.hint('[WASD] walk · [Shift] run · [Left Click] cutlass · hold [Right Click] to aim a pistol · [E] interact · [F] return to ship');
     this.walker = new PlayerWalker(this, { x: pos.x, y: pos.y, z: pos.z, yaw: town ? town.dir + Math.PI : 0 });
     this.walker.camYaw = this.walker.yaw;
     this.currentTown = town || null;
@@ -500,7 +505,7 @@ export class Game {
         if (this.mode === 'sail' && hr % 4 === 0) this.audio.bell(8);
         else if (this.mode === 'sail' && hr % 2 === 0) this.audio.bell(2);
       }
-    } else s.hours = 17.4 + Math.sin(this.titleT * 0.02) * 0.2;
+    } else s.hours = 16.6 + Math.sin(this.titleT * 0.02) * 0.2;
     shipTime.value += dt;
 
     // world systems
@@ -564,11 +569,14 @@ export class Game {
     this.titleT += dt;
     const s = this.titleShip;
     if (!s || !s.alive) return;
-    const a = this.titleT * 0.04 + 2.2;
-    const d = 95;
-    const target = s.position.clone().add(new THREE.Vector3(0, 30, 0));
-    this.camera.position.set(s.position.x + Math.cos(a) * d, 7 + Math.sin(this.titleT * 0.1) * 2, s.position.z + Math.sin(a) * d);
+    const a = this.titleT * 0.035 + 2.2;
+    const d = 88;
+    this.camera.position.set(s.position.x + Math.cos(a) * d, 6 + Math.sin(this.titleT * 0.1) * 1.5, s.position.z + Math.sin(a) * d);
     this.camera.position.y = Math.max(this.camera.position.y, this.ocean.heightAt(this.camera.position.x, this.camera.position.z) + 3);
+    // frame the ship in the right third of the screen, leaving room for the menu
+    const to = s.position.clone().sub(this.camera.position); to.y = 0; to.normalize();
+    const left = new THREE.Vector3(to.z, 0, -to.x);
+    const target = s.position.clone().add(new THREE.Vector3(0, 16, 0)).addScaledVector(left, 30);
     this.camera.lookAt(target);
     this.camera.fov = 55; this.camera.updateProjectionMatrix();
     this.focus.copy(s.position);
@@ -610,8 +618,11 @@ export class Game {
     if (inp.hit('Digit2')) { p.ammo = 'chain'; this.ui.toast('Load chain shot — shreds sails', 'info', 1500); }
     if (inp.hit('Digit3')) { p.ammo = 'grape'; this.ui.toast('Load grape shot — clears decks', 'info', 1500); }
 
-    // camera orbit
+    // camera orbit (drifts back astern when the mouse is idle, like a chase camera)
     const spy = inp.mouseDown(2);
+    if (Math.abs(m.dx) + Math.abs(m.dy) > 0.0005 || inp.mouseDown(0)) this.camIdle = 0;
+    else this.camIdle = (this.camIdle || 0) + dt;
+    if (this.camIdle > 4 && !spy) this.camYaw = dampAngle(this.camYaw, p.heading, 0.5, dt);
     this.camYaw -= m.dx;
     this.camPitch = clamp(this.camPitch + m.dy, 0.04, 1.25);
     if (m.wheel) this.camDist = clamp(this.camDist + m.wheel * 6, 18, 220);

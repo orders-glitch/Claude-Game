@@ -134,6 +134,14 @@ export class UI {
     setTimeout(() => { d.classList.add('out'); setTimeout(() => d.remove(), 450); }, ms);
   }
 
+  hint(text) {
+    const el = $('hint');
+    el.innerHTML = text.replace(/\[([^\]]+)\]/g, '<kbd>$1</kbd>');
+    el.classList.remove('hidden', 'fade');
+    clearTimeout(this._hintT);
+    this._hintT = setTimeout(() => el.classList.add('fade'), 14000);
+  }
+
   prompt(text) {
     if (this._prompt === text) return;
     this._prompt = text;

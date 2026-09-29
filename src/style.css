@@ -33,14 +33,17 @@ kbd { font-family: var(--sc); background: #f5ead0; border: 1px solid #8a6e44; bo
 .logo { font-family: var(--display); font-size: clamp(56px, 11vw, 132px); line-height: 0.85; color: #f4e7c6; text-shadow: 0 4px 0 #1a120a, 0 0 40px rgba(0,0,0,0.8); text-align: center; }
 .logo span { display: block; font-family: var(--sc); font-size: 0.26em; letter-spacing: 0.35em; margin: 0.25em 0 0.15em; color: var(--gold); text-shadow: 0 2px 0 #000; }
 .logo.small { font-size: 64px; }
-#title { background: linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.65) 100%); }
-.title-inner { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: -4vh; }
+#title { justify-content: flex-start; background: linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 38%, rgba(0,0,0,0) 60%), linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.5)); }
+.title-inner { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin: -4vh 0 0 7vw; }
+.title-inner .logo { text-align: left; }
+.title-inner .logo span { letter-spacing: 0.3em; }
 .subtitle { font-family: var(--sc); letter-spacing: 0.25em; color: #efe0bb; text-shadow: 0 2px 6px #000; font-size: 18px; }
 .menu { display: flex; flex-direction: column; gap: 10px; margin-top: 26px; min-width: 300px; }
+.title-inner .menu { width: 320px; }
 .menu button { width: 100%; }
 .menu button small { font-size: 0.65em; opacity: 0.7; }
 #save-summary { font-style: italic; color: #e6d6b0; text-shadow: 0 1px 3px #000; min-height: 22px; }
-.title-foot { position: fixed; bottom: 14px; left: 0; right: 0; text-align: center; font-size: 13px; color: rgba(240,228,200,0.7); font-style: italic; text-shadow: 0 1px 2px #000; padding: 0 16px; }
+.title-foot { position: fixed; bottom: 14px; left: 7vw; right: 0; text-align: left; font-size: 13px; color: rgba(240,228,200,0.7); font-style: italic; text-shadow: 0 1px 2px #000; padding: 0 16px; }
 .panel, .parch { background: var(--parch) url() ; color: var(--ink); border: 1px solid #7a5e34; border-radius: 4px; padding: 22px 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.6), inset 0 0 60px rgba(120, 90, 40, 0.35), inset 0 0 0 6px rgba(233,217,180,1), inset 0 0 0 7px rgba(122,94,52,0.5); background-image: radial-gradient(ellipse at 30% 20%, rgba(255,250,235,0.5), transparent 60%), radial-gradient(ellipse at 80% 90%, rgba(150,110,50,0.25), transparent 60%); }
 .panel h2, .parch h2 { font-family: var(--display); font-weight: normal; font-size: 40px; margin: 0 0 12px; color: #3a2410; }
 .parch h3 { font-family: var(--sc); margin: 10px 0 6px; color: var(--blood); font-weight: normal; }
@@ -85,6 +88,9 @@ kbd { font-family: var(--sc); background: #f5ead0; border: 1px solid #8a6e44; bo
 .toast.out { opacity: 0; transform: translateX(20px); transition: all .4s; }
 @keyframes toastIn { from { opacity: 0; transform: translateX(30px); } }
 #prompt { position: absolute; bottom: 24%; left: 50%; transform: translateX(-50%); background: rgba(12,10,8,0.7); padding: 8px 18px; font-size: 19px; border: 1px solid var(--hud-line); border-radius: 3px; }
+#hint { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 14px; color: #e6d8b6; background: rgba(12,10,8,0.5); padding: 5px 14px; border-radius: 3px; text-align: center; line-height: 1.6; transition: opacity 1.5s; width: max-content; max-width: calc(100vw - 580px); }
+#hint kbd { font-size: 12px; padding: 0 4px; }
+#hint.fade { opacity: 0; }
 #minimap-wrap { position: absolute; left: 18px; bottom: 18px; width: 220px; height: 220px; }
 #minimap { width: 220px; height: 220px; border-radius: 50%; box-shadow: 0 0 0 2px #7a5e34, 0 0 0 5px rgba(12,10,8,0.6), 0 6px 20px rgba(0,0,0,0.6); }
 #ship-panel { position: absolute; right: 18px; bottom: 18px; width: 290px; background: var(--hud-bg); border: 1px solid var(--hud-line); border-radius: 4px; padding: 10px 14px; }
@@ -170,6 +176,7 @@ table.trade button { font-size: 14px; padding: 2px 9px; margin-left: 3px; }
 #click-to-play { position: fixed; bottom: 40%; left: 50%; transform: translateX(-50%); z-index: 25; background: rgba(12,10,8,0.8); padding: 12px 26px; font-family: var(--sc); font-size: 22px; border: 1px solid var(--hud-line); color: var(--gold-bright); pointer-events: none; }
 
 @media (max-width: 900px) {
+  .title-inner { margin-left: 5vw; }
   #minimap-wrap, #minimap { width: 150px; height: 150px; }
   #ship-panel { width: 230px; }
   #compass-strip { display: none; }
