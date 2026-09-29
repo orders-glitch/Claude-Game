@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -44,5 +44,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Requires Settings → Pages → Source: "GitHub Actions". Until then this step is skipped over
+      # (the built game is still available as a downloadable artifact from the build job).
       - id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - if: steps.deployment.outcome == 'failure'
+        run: echo "::warning::GitHub Pages is not enabled for this repository. Enable it under Settings → Pages → Source → GitHub Actions, then re-run this workflow."
+      - if: steps.deployment.outcome == 'success'
+        run: echo "Deployed to ${{ steps.deployment.outputs.page_url }}"
