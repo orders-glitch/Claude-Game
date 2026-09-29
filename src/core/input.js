@@ -13,7 +13,10 @@ export class Input {
 
     window.addEventListener('keydown', (e) => {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-      if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.code) && !(e.target && e.target.tagName === 'SELECT')) {
+        e.preventDefault();
+        if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
+      }
       if (!this.keys.has(e.code)) this.pressed.add(e.code);
       this.keys.add(e.code);
     });
@@ -44,7 +47,7 @@ export class Input {
   }
 
   lock() {
-    if (!this.locked && this.canvas.requestPointerLock) {
+    if (document.pointerLockElement !== this.canvas && this.canvas.requestPointerLock) {
       try {
         const p = this.canvas.requestPointerLock({ unadjustedMovement: false });
         if (p && p.catch) p.catch(() => {});
@@ -52,7 +55,7 @@ export class Input {
     }
   }
 
-  unlock() { if (this.locked) document.exitPointerLock(); }
+  unlock() { if (document.pointerLockElement) document.exitPointerLock(); }
 
   down(code) { return this.enabled && this.keys.has(code); }
   hit(code) { return this.enabled && this.pressed.has(code); }

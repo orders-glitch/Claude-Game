@@ -47,6 +47,12 @@ export class UI {
 
   bindMenus() {
     const g = this.game;
+    // Never leave keyboard focus on a clicked button: Space/Enter would re-trigger it mid-game.
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('button');
+      if (b) setTimeout(() => b.blur(), 0);
+    }, true);
+    window.addEventListener('scroll', () => { if (window.scrollY || window.scrollX) window.scrollTo(0, 0); });
     $('title').addEventListener('click', (e) => {
       const act = e.target.closest('button')?.dataset.act;
       if (!act) return;
@@ -96,6 +102,7 @@ export class UI {
   }
 
   openModal(id) {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     $(id).classList.remove('hidden');
     if (!this.modalStack.includes(id)) this.modalStack.push(id);
     this.game.onModal(true);
@@ -671,6 +678,16 @@ export class UI {
       ctx.beginPath(); ctx.arc(px, py, 14, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fillStyle = '#d89a1a'; ctx.fill();
     }
+    // waypoint
+    if (s.waypoint) {
+      const [wx, wy] = v.toPx(s.waypoint.x, s.waypoint.z);
+      ctx.strokeStyle = '#2a5a8a'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(wx, wy, 11, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(wx - 16, wy); ctx.lineTo(wx + 16, wy); ctx.moveTo(wx, wy - 16); ctx.lineTo(wx, wy + 16); ctx.stroke();
+      const [fx, fy] = v.toPx(g.focus.x, g.focus.z);
+      ctx.setLineDash([8, 8]); ctx.strokeStyle = 'rgba(42,90,138,0.7)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(wx, wy); ctx.stroke(); ctx.setLineDash([]);
+    }
     // player
     const f = g.focus;
     const [px, py] = v.toPx(f.x, f.z);
@@ -681,7 +698,7 @@ export class UI {
     ctx.fillStyle = '#111'; ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(8, 10); ctx.lineTo(0, 5); ctx.lineTo(-8, 10); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.restore();
-    $('chart-info').textContent = g.canFastTravel() ? 'Click a discovered port to set a course there (fast travel).' : g.fastTravelBlockReason();
+    $('chart-info').textContent = (g.canFastTravel() ? 'Click a discovered port to fast-travel there. ' : g.fastTravelBlockReason() + ' ') + 'Click the sea to plot a waypoint.';
   }
 
   chartHit(e) {
@@ -707,7 +724,19 @@ export class UI {
   chartClick(e) {
     const p = this.chartHit(e);
     const g = this.game;
-    if (!p) return;
+    if (!p) {
+      // plot a waypoint on open water / any island
+      const cv = $('chart-canvas');
+      const rect = cv.getBoundingClientRect();
+      const px = ((e.clientX - rect.left) / rect.width) * cv.width, py = ((e.clientY - rect.top) / rect.height) * cv.height;
+      const [x, z] = this.chartView(cv.width, cv.height).toWorld(px, py);
+      const wp = g.state.waypoint;
+      if (wp && Math.hypot(wp.x - x, wp.z - z) < 150) { g.state.waypoint = null; this.toast('Waypoint cleared.', 'info', 1500); }
+      else { g.state.waypoint = { x, z }; this.toast('Waypoint plotted on the chart.', 'info', 1500); }
+      g.audio.ui('click');
+      this.drawChart();
+      return;
+    }
     if (!g.state.discovered.includes(p.id)) return this.toast(`You have not yet found ${p.name}.`, 'warn');
     if (!g.canFastTravel()) return this.toast(g.fastTravelBlockReason(), 'warn');
     this.closeAll();

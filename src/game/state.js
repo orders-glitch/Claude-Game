@@ -26,6 +26,7 @@ export class GameState {
     this.position = null; // {x,z,heading,mode}
     this.lastPort = 'nassau';
     this.flag = 'pirate';
+    this.waypoint = null;
     this.marketShift = {};
     this.settings = this.settings || loadSettings();
   }

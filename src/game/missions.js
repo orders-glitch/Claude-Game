@@ -162,6 +162,8 @@ export class Missions {
     }
     const c = this.game.state.contracts[0];
     if (c?.marker) return c.target ? c.target.position : new THREE.Vector3(c.marker.x, 0, c.marker.z);
+    const w = this.game.state.waypoint;
+    if (w) return new THREE.Vector3(w.x, 0, w.z);
     return null;
   }
 
@@ -241,6 +243,11 @@ export class Missions {
   update(dt) {
     const st = this.stage;
     if (st?.check && st.check()) this.advance();
+    const w = this.game.state.waypoint;
+    if (w && Math.hypot(w.x - this.game.focus.x, w.z - this.game.focus.z) < 120) {
+      this.game.state.waypoint = null;
+      this.game.ui.toast('You have reached your waypoint.', 'info', 2000);
+    }
     // contract expiry
     const g = this.game;
     for (const c of [...g.state.contracts]) {
