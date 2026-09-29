@@ -147,6 +147,22 @@ export class Town {
       }
     }
 
+    // ---- paved streets (cobbles in colonial towns, packed shell-sand in Nassau)
+    const paveCol = shanty ? '#c9b893' : this.port.style === 'english' ? '#8f877a' : '#a89c86';
+    const paveSeg = (a, b, len, along) => {
+      const g = this.groundAt(a, b);
+      if (Math.abs(g - this.level) > 0.35 || !this.isLandLot(a, b, 1, 1)) return;
+      if (along) B.box('stone', len, 0.12, 7, T(a, g + 0.02, b), paveCol);
+      else B.box('stone', 7, 0.12, len, T(a, g + 0.02, b), paveCol);
+    };
+    if (!shanty) {
+      for (const sb of streetsB) for (let a = -R * 1.1; a <= R * 1.1; a += 8) paveSeg(a, sb, 8.2, true);
+      for (const sa of streetsA) for (let b = 12; b <= R * 1.3; b += 8) paveSeg(sa, b, 8.2, false);
+    } else {
+      for (let b = 12; b <= R * 1.1; b += 8) paveSeg(0, b, 8.2, false);
+      for (let a = -R * 0.8; a <= R * 0.8; a += 8) paveSeg(a, 16, 8.2, true);
+    }
+
     // ---- street nodes for pedestrians (inland of waterfront)
     for (const sb of streetsB) {
       for (let a = -R; a <= R; a += 20) {
@@ -443,7 +459,8 @@ export class Town {
   buildMarket(B, a, b) {
     const rnd = this.rand;
     const y = this.groundAt(a, b);
-    // fountain / well
+    // paved plaza with a fountain / well
+    if (this.port.style !== 'shanty') B.cyl('stone', 19, 19, 0.12, 28, T(a, y + 0.03, b), '#b3a68e');
     B.cyl('stone', 2.4, 2.6, 0.9, 16, T(a, y + 0.45, b), '#bfb4a0');
     B.cyl('stone', 0.4, 0.5, 2.2, 8, T(a, y + 1.1, b), '#bfb4a0');
     this.addCollider(a, b, 2.5, 2.5);
@@ -565,8 +582,9 @@ export function buildSalvageCamp(scene, terrain, site) {
     const a = -12 + i * 6, b = 12;
     const w = toW(a, b);
     const y = terrain.height(w.x, w.z);
-    B.box('wood', 1.4, 0.9, 0.9, T(a, y + 0.45, b), '#6a4a2a');
-    B.box('metal', 1.42, 0.12, 0.92, T(a, y + 0.7, b), '#8a8a8a');
+    B.box('wood', 1.4, 0.9, 0.9, T(a, y + 0.45, b), '#a07a4a');
+    B.box('metal', 1.42, 0.1, 0.92, T(a, y + 0.7, b), '#5a5a5a');
+    for (let k = 0; k < 3; k++) B.box('metal', 0.9, 0.12, 0.22, T(a, y + 0.98, b - 0.25 + k * 0.25), '#d8d8e0');
     chests.push({ ...w, y });
   }
   // campfire

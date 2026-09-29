@@ -5,8 +5,8 @@ import { clamp, lerp, smoothstep } from '../core/noise.js';
 const C = (hex) => new THREE.Color(hex);
 // Sky gradient keys by sun elevation (sin of altitude).
 const KEYS = [
-  { e: -0.35, zen: C('#02050d'), hor: C('#070d1a'), sun: C('#223355'), amb: C('#0b1322') },
-  { e: -0.12, zen: C('#0a1430'), hor: C('#1e2740'), sun: C('#40507a'), amb: C('#172033') },
+  { e: -0.35, zen: C('#02050d'), hor: C('#0a1222'), sun: C('#223355'), amb: C('#18233a') },
+  { e: -0.12, zen: C('#0a1430'), hor: C('#1e2740'), sun: C('#40507a'), amb: C('#1d2a42') },
   { e: -0.02, zen: C('#28355e'), hor: C('#d0694a'), sun: C('#ff7a40'), amb: C('#4a3a4a') },
   { e: 0.06, zen: C('#3d5f98'), hor: C('#f0a766'), sun: C('#ffb070'), amb: C('#6e6a70') },
   { e: 0.22, zen: C('#3b73c2'), hor: C('#bcd3e6'), sun: C('#ffe2b8'), amb: C('#8ea3b8') },

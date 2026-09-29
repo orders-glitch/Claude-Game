@@ -14,7 +14,7 @@ export class GameState {
     this.day = 0; // days since 1 June 1716
     this.hours = 7.5;
     this.health = 100;
-    this.ship = { cls: 'sloop', hull: SHIP_CLASSES.sloop.hull, sails: SHIP_CLASSES.sloop.sails, crew: 22, cargo: {} };
+    this.ship = { cls: 'sloop', hull: SHIP_CLASSES.sloop.hull, sails: SHIP_CLASSES.sloop.sails, crew: 40, cargo: {} };
     this.upgrades = { guns: 0, hull: 0, sails: 0 };
     this.notoriety = { britain: 0, spain: 0, france: 0, dutch: 0 };
     this.renown = 0;

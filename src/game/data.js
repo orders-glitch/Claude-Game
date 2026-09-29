@@ -20,7 +20,7 @@ export const NATIONS = {
   },
   pirate: {
     id: 'pirate', name: 'the Brethren', adj: 'Pirate', flag: 'pirate',
-    hull: '#4a3526', stripe: '#1b1b1b', coat: '#3b2a22', facing: '#7a1d1d',
+    hull: '#5e4632', stripe: '#2a2420', coat: '#3b2a22', facing: '#7a1d1d',
   },
 };
 

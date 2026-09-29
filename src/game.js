@@ -278,6 +278,7 @@ export class Game {
   quitToTitle() {
     this.save();
     this.input.unlock();
+    this.ui.hideClickToPlay();
     this.setupTitle();
     this.ui.showTitle();
     this.audio.setMusic('none');
@@ -563,10 +564,10 @@ export class Game {
     this.titleT += dt;
     const s = this.titleShip;
     if (!s || !s.alive) return;
-    const a = this.titleT * 0.05 + 2.2;
-    const d = 70;
-    const target = s.position.clone().add(new THREE.Vector3(0, 10, 0));
-    this.camera.position.set(s.position.x + Math.cos(a) * d, 9 + Math.sin(this.titleT * 0.1) * 3, s.position.z + Math.sin(a) * d);
+    const a = this.titleT * 0.04 + 2.2;
+    const d = 95;
+    const target = s.position.clone().add(new THREE.Vector3(0, 30, 0));
+    this.camera.position.set(s.position.x + Math.cos(a) * d, 7 + Math.sin(this.titleT * 0.1) * 2, s.position.z + Math.sin(a) * d);
     this.camera.position.y = Math.max(this.camera.position.y, this.ocean.heightAt(this.camera.position.x, this.camera.position.z) + 3);
     this.camera.lookAt(target);
     this.camera.fov = 55; this.camera.updateProjectionMatrix();
@@ -1042,7 +1043,7 @@ export class Game {
       if (!hunted && !this.combatNear) s.notoriety[k] = Math.max(0, s.notoriety[k] - dh * 0.25);
     }
     // spawn pirate hunters for high notoriety
-    this.hunterTimer = (this.hunterTimer || 20) - dt;
+    this.hunterTimer = (this.hunterTimer ?? 20) - dt;
     if (this.hunterTimer <= 0 && this.mode === 'sail') {
       this.hunterTimer = 50;
       for (const k of Object.keys(s.notoriety)) {
@@ -1565,28 +1566,28 @@ export class Game {
   }
 
   onLockChange(locked) {
-    const needPlay = !locked && (this.mode === 'sail' || this.mode === 'foot') && !this.ui.anyModal();
-    document.getElementById('click-to-play').classList.toggle('hidden', !needPlay);
-    if (needPlay && !this._escPending) {
-      // Browser released the pointer (Esc): pause.
-      this.ui.openModal('pause');
-    }
-    this._escPending = false;
+    this._lockChangeT = performance.now();
+    const playing = (this.mode === 'sail' || this.mode === 'foot') && !this.ui.anyModal();
+    // The browser released the pointer (usually Esc): pause the game.
+    if (!locked && playing) this.ui.openModal('pause');
   }
 
   onKey(e) {
     if (this.mode !== 'sail' && this.mode !== 'foot') return;
     if (e.code === 'Escape') {
+      // ignore the Esc that just released pointer lock (it already opened the pause menu)
+      if (performance.now() - (this._lockChangeT || 0) < 250) return;
       if (this.ui.anyModal()) { if (this.ui.top() !== 'dialog') this.ui.closeTop(); }
       else this.ui.openModal('pause');
+      return;
     }
     if (this.ui.anyModal()) {
       if ((e.code === 'KeyM' && this.ui.top() === 'chart') || (e.code === 'Tab' && this.ui.top() === 'log')) this.ui.closeTop();
       if ((e.code === 'Space' || e.code === 'Enter') && this.ui.top() === 'dialog') this.ui.advanceDialog();
       return;
     }
-    if (e.code === 'KeyM') { this._escPending = true; this.ui.openChart(); }
-    if (e.code === 'Tab') { e.preventDefault(); this._escPending = true; this.ui.openLog(); }
+    if (e.code === 'KeyM') this.ui.openChart();
+    if (e.code === 'Tab') { e.preventDefault(); this.ui.openLog(); }
   }
 
   // ======================================================================== audio mix

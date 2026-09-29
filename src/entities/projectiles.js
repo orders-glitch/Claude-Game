@@ -21,21 +21,24 @@ export class Projectiles {
 
   spawn(pos, vel, owner, ammo = 'round') {
     const dmg = owner?.gunDamage || 1;
+    if (this.ocean) pos.y = Math.max(pos.y, this.ocean.heightAt(pos.x, pos.z) + 0.6);
     if (ammo === 'grape') {
       for (let i = 0; i < 5; i++) {
         const v = vel.clone().add(new THREE.Vector3((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 10));
-        this.list.push({ p: pos.clone(), v, owner, ammo, life: 3, damage: dmg * 0.3, scale: 0.45 });
+        this.list.push({ p: pos.clone(), v, owner, ammo, life: 3, age: 0, damage: dmg * 0.3, scale: 0.45 });
       }
       return;
     }
-    this.list.push({ p: pos.clone(), v: vel.clone(), owner, ammo, life: 6, damage: dmg, scale: ammo === 'chain' ? 1.3 : 1 });
+    this.list.push({ p: pos.clone(), v: vel.clone(), owner, ammo, life: 6, age: 0, damage: dmg, scale: ammo === 'chain' ? 1.3 : 1 });
   }
 
   update(dt, world) {
     const out = [];
     const ships = world.ships;
+    this.ocean = world.ocean;
     for (const b of this.list) {
       b.life -= dt;
+      b.age += dt;
       const steps = 2;
       let dead = false;
       for (let s = 0; s < steps && !dead; s++) {
@@ -60,7 +63,7 @@ export class Projectiles {
         }
         if (dead) break;
         // water
-        if (b.p.y < 4) {
+        if (b.p.y < 4 && b.age > 0.15) {
           const wh = world.ocean.heightAt(b.p.x, b.p.z);
           if (b.p.y < wh) {
             const tgh = world.terrain.quickHeight(b.p.x, b.p.z);

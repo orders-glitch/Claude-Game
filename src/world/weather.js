@@ -45,13 +45,13 @@ export class Weather {
           float fall = mod(p.y - uTime * 38.0 - uCam.y, 60.0) - 10.0;
           vec3 base = vec3(mod(p.x - uCam.x + uWind.x * uTime * 4.0, 120.0) - 60.0, fall, mod(p.z - uCam.z + uWind.y * uTime * 4.0, 120.0) - 60.0);
           vec3 wp = uCam + base + vec3(uWind.x, 0.0, uWind.y) * (fall * 0.08);
-          if (mod(float(gl_VertexID), 2.0) > 0.5) wp += vec3(-uWind.x * 0.6, -1.6, -uWind.y * 0.6);
+          if (mod(float(gl_VertexID), 2.0) > 0.5) wp += vec3(-uWind.x * 0.15, -0.9, -uWind.y * 0.15);
           vA = 1.0 - smoothstep(20.0, 60.0, length(base.xz));
           gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
         }`,
       fragmentShader: `
         uniform float uOpacity; varying float vA;
-        void main() { gl_FragColor = vec4(0.72, 0.76, 0.82, uOpacity * vA * 0.45); }`,
+        void main() { gl_FragColor = vec4(0.72, 0.76, 0.82, uOpacity * vA * 0.28); }`,
     }));
     this.rain.frustumCulled = false;
     this.rain.visible = false;

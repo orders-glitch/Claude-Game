@@ -312,6 +312,7 @@ export class Ship {
 
   updateShots(dt, world) {
     const keep = [];
+    this.group.updateMatrixWorld();
     for (const sh of this.pendingShots) {
       sh.t -= dt;
       if (sh.t > 0) { keep.push(sh); continue; }

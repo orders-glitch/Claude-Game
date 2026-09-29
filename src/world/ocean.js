@@ -227,7 +227,7 @@ void main() {
   vec3 n1 = texture2D(uNormalMap, uv * 0.018 + vec2(uTime * 0.012, uTime * 0.007)).xyz * 2.0 - 1.0;
   vec3 n2 = texture2D(uNormalMap, uv * 0.061 - vec2(uTime * 0.018, -uTime * 0.021)).xyz * 2.0 - 1.0;
   vec3 n3 = texture2D(uNormalMap, uv * 0.33 + vec2(uTime * 0.09, uTime * 0.05)).xyz * 2.0 - 1.0;
-  vec2 dn = (n1.xy * 0.55 + n2.xy * 0.45 + n3.xy * (0.25 + uRain * 0.9)) * (0.35 + 0.25 * uSea) * detailFade;
+  vec2 dn = (n1.xy * 0.55 + n2.xy * 0.45 + n3.xy * (0.12 + uRain * 0.9) * (1.0 - smoothstep(40.0, 400.0, dist))) * (0.35 + 0.25 * uSea) * detailFade;
   vec3 N = normalize(vNormal + vec3(dn.x, 0.0, dn.y));
 
   // bathymetry from the baked terrain heightmap
@@ -270,7 +270,7 @@ void main() {
   vec3 fB = texture2D(uFoamTex, uv * 0.19 - vec2(uTime * 0.02, 0.0)).rgb;
   float foamNoise = fA.g * 0.6 + fB.r * 0.6;
   float crest = smoothstep(1.2, 1.9, vHeight / max(uSea, 0.35) + foamNoise * 0.8 - 0.25) * vFade;
-  crest *= smoothstep(0.9, 1.7, uSea) * 0.75 + 0.18;
+  crest *= smoothstep(0.9, 1.7, uSea) * 0.8 + 0.12;
   float shoreBand = veryShallow * (1.0 - smoothstep(-0.2, 0.6, ground - vHeight + 0.4));
   float surf = shoreBand * smoothstep(0.35, 0.7, fract(depth * 0.35 - uTime * 0.25 + foamNoise * 0.6)) ;
   surf += (1.0 - smoothstep(0.0, 0.9, depth)) * 0.9;

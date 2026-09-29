@@ -113,6 +113,7 @@ export class UI {
     }
     this.game.onModal(false);
   }
+  hideClickToPlay() { this._needClick = false; $('click-to-play').classList.add('hidden'); }
   anyModal() { return this.modalStack.length > 0; }
   top() { return this.modalStack[this.modalStack.length - 1]; }
 
@@ -294,6 +295,8 @@ export class UI {
     } else cm.style.display = 'none';
 
     this.drawMinimap();
+    const needClick = !g.input.locked && !this.anyModal();
+    if (needClick !== this._needClick) { this._needClick = needClick; $('click-to-play').classList.toggle('hidden', !needClick); }
     if (this.hudTimer > 0) return;
     this.hudTimer = 0.15;
     $('hud-date').textContent = s.dateString();
@@ -600,6 +603,7 @@ export class UI {
     ctx.fillStyle = 'rgba(58,38,20,0.9)';
     ctx.textAlign = 'center';
     for (const is of ISLANDS) {
+      if (is.id === 'hog' || is.id === 'tortuga') continue;
       const [px, py] = v.toPx(is.x, is.z);
       const big = is.rx > 800;
       ctx.font = `italic ${big ? 26 : 16}px "IM Fell English", serif`;
@@ -609,13 +613,13 @@ export class UI {
     ctx.fillStyle = 'rgba(58,38,20,0.55)';
     ctx.fillText('The Gulf of Florida', ...v.toPx(-2600, -6200));
     ctx.fillText('Mar del Norte', ...v.toPx(4200, -7200));
-    ctx.fillText('The Caribbean Sea', ...v.toPx(-1000, 1500));
-    ctx.font = `44px "Pirata One", serif`;
-    ctx.fillStyle = 'rgba(58,38,20,0.8)';
-    ctx.textAlign = 'left';
-    ctx.fillText('A New Chart of the West Indies', 30, 56);
-    ctx.font = `italic 18px "IM Fell English", serif`;
-    ctx.fillText('drawn from the latest observations · MDCCXVI', 34, 82);
+    ctx.fillText('The Caribbean Sea', ...v.toPx(-3600, 1500));
+    ctx.font = `${Math.round(w * 0.034)}px "Pirata One", serif`;
+    ctx.fillStyle = 'rgba(58,38,20,0.85)';
+    ctx.textAlign = 'right';
+    ctx.fillText('A New Chart of the West Indies', w - 30, h - 58);
+    ctx.font = `italic ${Math.round(w * 0.014)}px "IM Fell English", serif`;
+    ctx.fillText('drawn from the latest observations · MDCCXVI', w - 32, h - 30);
     this.chartView_ = v;
     return c;
   }

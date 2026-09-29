@@ -12,7 +12,7 @@ function materials() {
   if (MATS) return MATS;
   const std = (o) => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0, ...o });
   MATS = {
-    hull: std({ map: woodTexture('#b89a78', 'hullwood'), side: THREE.DoubleSide, roughness: 0.75 }),
+    hull: std({ map: woodTexture('#d2b690', 'hullwood'), side: THREE.DoubleSide, roughness: 0.75 }),
     deck: std({ map: woodTexture('#c8ad86', 'deckwood'), roughness: 0.85 }),
     wood: std({ map: woodTexture('#9a7a58', 'sparwood') }),
     metal: std({ roughness: 0.45, metalness: 0.7 }),
@@ -47,6 +47,7 @@ function sailMaterial(tint) {
         if (aBillow >= 0.0) {
           float f = max(uFurl, 0.05);
           transformed.y = aTop - (aTop - transformed.y) * f;
+          if (aType > 0.5) transformed.z = aMast.y + (transformed.z - aMast.y) * f;
           float flutter = sin(uTime * 7.0 + position.y * 1.3 + position.x) * 0.08 * (1.0 - uFill);
           float bel = aBillow * (uFill * 0.9 + 0.1) * (0.35 + 0.65 * f);
           if (aType < 0.5) transformed.z -= bel * 2.4 + flutter;
@@ -419,15 +420,14 @@ export function buildShipModel(cls, nation, opts = {}) {
   const foreZ = foreTop.z;
   if (rig === 'sloop' || rig === 'brigantine') {
     const headY = sheer(mastDefs[0].t) + mastDefs[0].H * (rig === 'sloop' ? 0.72 : 0.6);
-    S.quad([[bsTip.z + 0.5, bsTip.y], [foreZ - 0.3, headY], [foreZ - 0.3, headY], [foreZ - 2.5, sheer(0.9) + 2]], 2, 0, 0);
-    const midZ = lerp(bsTip.z, bowY, 0.5);
-    S.quad([[lerp(bsTip.z, -L / 2, 0.5), lerp(bsTip.y, bowY, 0.5)], [foreZ - 0.3, headY * 0.85], [foreZ - 0.3, headY * 0.85], [foreZ - 3.2, sheer(0.8) + 1.6]], 2, 0, midZ);
+    S.quad([[bsTip.z + 0.5, bsTip.y], [foreZ - 0.3, headY], [foreZ - 0.3, headY], [foreZ - 2.5, sheer(0.9) + 2]], 2, 0, foreZ - 0.3);
+    S.quad([[lerp(bsTip.z, -L / 2, 0.5), lerp(bsTip.y, bowY, 0.5)], [foreZ - 0.3, headY * 0.85], [foreZ - 0.3, headY * 0.85], [foreZ - 3.2, sheer(0.8) + 1.6]], 2, 0, foreZ - 0.3);
   } else {
     // spritsail beneath the bowsprit (period-correct for 1716)
     const sz = lerp(bsBaseZ, bsTip.z, 0.72);
     S.square(0, sz, lerp(bowY, bsTip.y, 0.72) - 0.3, lerp(bowY, bsTip.y, 0.72) - 4.5, beam * 1.1, beam * 1.3);
     const headY = sheer(mastDefs[0].t) + mastDefs[0].H * 0.55;
-    S.quad([[bsTip.z + 0.5, bsTip.y], [foreZ - 0.3, headY], [foreZ - 0.3, headY], [foreZ - 3, sheer(0.9) + 2]], 2, 0, 0);
+    S.quad([[bsTip.z + 0.5, bsTip.y], [foreZ - 0.3, headY], [foreZ - 0.3, headY], [foreZ - 3, sheer(0.9) + 2]], 2, 0, foreZ - 0.3);
   }
   // stays
   rigging.push(bsTip.clone(), foreTop.clone().setY(foreTop.y * 0.8));
@@ -459,7 +459,6 @@ export function buildShipModel(cls, nation, opts = {}) {
   const ensign = new THREE.Mesh(new THREE.PlaneGeometry(fsize * 1.6, fsize, 10, 4).translate(fsize * 0.8, 0, 0), flagMaterial(ensignKind));
   ensign.rotation.y = Math.PI / 2;
   ensign.position.set(0, sternY + bulwark + (rig === 'sloop' ? 5 : 3.5), L / 2 + 0.6);
-  B.cyl('wood', 0.06, 0.08, 5, 5, null, '#3a2a1a');
   const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 6, 5), M.wood);
   staff.position.set(0, sternY + bulwark + 2.5, L / 2 + 0.6);
   group.add(staff);
