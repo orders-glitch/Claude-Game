@@ -1194,7 +1194,7 @@ export class Game {
     if (act && (this.input.hit('KeyE') || (act.f && this.input.hit('KeyF')))) act.act();
     if (this.digging) {
       this.digging.t -= dt;
-      w.attackT = (w.attackT < 0 ? 0 : w.attackT);
+      w.animState.dig = true;
       if (Math.random() < dt * 3) { this.audio.dig(); this.effects.dust(w.pos.clone().add(new THREE.Vector3(0, 0.3, 0))); }
       if (this.digging.t <= 0) this.finishDig();
     }
@@ -1265,7 +1265,7 @@ export class Game {
   finishDig() {
     const m = this.digging.map;
     this.digging = null;
-    this.walker.attackT = -1;
+    this.walker.animState.dig = false;
     m.found = true;
     this.state.gold += m.value;
     this.state.stats.treasures++;

@@ -1,6 +1,7 @@
 // Walking characters: the captain on foot, townsfolk, guards and soldiers.
 import * as THREE from 'three';
-import { buildCharacter, Animator, LOOKS, setWeapon } from './character.js';
+import { LOOKS } from './character.js';
+import { CharacterRig } from './rig.js';
 import { clamp, damp, dampAngle, wrapAngle, rand, pick } from '../core/noise.js';
 
 const GRAV = 22;
@@ -9,9 +10,8 @@ export class Walker {
   constructor(game, look, opts = {}) {
     this.game = game;
     this.look = look;
-    this.bones = buildCharacter(look);
-    this.anim = new Animator(this.bones);
-    this.root = this.bones.root;
+    this.rig = new CharacterRig(look);
+    this.root = this.rig.root;
     this.pos = new THREE.Vector3(opts.x || 0, opts.y || 0, opts.z || 0);
     this.yaw = opts.yaw || 0;
     this.vel = new THREE.Vector3();
@@ -80,7 +80,8 @@ export class Walker {
     st.weapon = this.weapon;
     st.hitT = this.hitT;
     this.hitT = Math.max(0, this.hitT - dt * 4);
-    this.anim.update(dt, st);
+    this.rig.setWeapon(this.weapon);
+    this.rig.update(dt, st);
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
   }
@@ -100,7 +101,7 @@ export class Walker {
     this.game.audio.grunt(this.pos);
   }
 
-  dispose() { this.game.scene.remove(this.root); }
+  dispose() { this.rig.dispose(); this.game.scene.remove(this.root); }
 }
 
 // ---------------------------------------------------------------- player on foot
@@ -177,8 +178,8 @@ export class PlayerWalker extends Walker {
         g.playerShoot(this);
       } else g.audio.ui('click');
     }
-    if (this.aiming && this.weapon !== 'pistol') { this.weapon = 'pistol'; setWeapon(this.bones, 'pistol'); }
-    if (!this.aiming && this.weapon !== 'cutlass') { this.weapon = 'cutlass'; setWeapon(this.bones, 'cutlass'); }
+    if (this.aiming && this.weapon !== 'pistol') this.weapon = 'pistol';
+    if (!this.aiming && this.weapon !== 'cutlass') this.weapon = 'cutlass';
 
     // regeneration
     this.regenDelay -= dt;

@@ -29,8 +29,8 @@ function part(list, mat = charMat) {
 }
 
 export const LOOKS = {
-  captain: { skin: '#c89468', coat: '#5a1f1a', coatLong: true, shirt: '#ece4d0', vest: '#8a6a2a', breeches: '#2a2320', stockings: '#d8d0c0', shoes: '#1a1410', hat: 'tricorne', hatColor: '#1c1814', hair: '#2a1a10', sash: '#8a1d1d', weapon: 'cutlass', trim: '#c9a13a' },
-  pirate: { skin: '#b07850', coat: null, shirt: '#d8ccb0', vest: '#5a4630', breeches: '#4a4034', stockings: '#6a5a44', shoes: '#2a2018', hat: 'bandana', hatColor: '#8a2a1a', hair: '#1a1410', sash: '#3a5a7a', weapon: 'cutlass' },
+  captain: { skin: '#c89468', coat: '#5a1f1a', coatLong: true, shirt: '#ece4d0', vest: '#8a6a2a', breeches: '#2a2320', stockings: '#d8d0c0', shoes: '#1a1410', hat: 'tricorne', hatColor: '#1c1814', hair: '#2a1a10', sash: '#8a1d1d', weapon: 'cutlass', trim: '#c9a13a', boots: true, shoes: '#2a1a10', beard: '#2a1a10', baldric: true },
+  pirate: { skin: '#b07850', coat: null, shirt: '#d8ccb0', vest: '#5a4630', breeches: '#4a4034', stockings: '#6a5a44', shoes: '#2a2018', hat: 'bandana', hatColor: '#8a2a1a', hair: '#1a1410', sash: '#3a5a7a', weapon: 'cutlass', sleeves: 'rolled', slops: true },
   redcoat: { skin: '#e0b090', coat: '#a4221e', coatLong: true, shirt: '#ece4d0', vest: '#d8ccb0', breeches: '#d8ccb0', stockings: '#e8e0d0', shoes: '#141210', hat: 'tricorne', hatColor: '#141210', hair: '#e8e4dc', weapon: 'musket', trim: '#e8dcc0', crossbelt: true },
   spanishSoldier: { skin: '#c08a60', coat: '#2b3f7a', coatLong: true, shirt: '#ece4d0', vest: '#c9372c', breeches: '#2b3f7a', stockings: '#c9372c', shoes: '#141210', hat: 'tricorne', hatColor: '#141210', hair: '#1a1410', weapon: 'musket', trim: '#e8dcc0', crossbelt: true },
   frenchSoldier: { skin: '#d8a882', coat: '#d9d4c6', coatLong: true, shirt: '#ece4d0', vest: '#1f3d78', breeches: '#d9d4c6', stockings: '#e8e0d0', shoes: '#141210', hat: 'tricorne', hatColor: '#141210', hair: '#e8e4dc', weapon: 'musket', trim: '#1f3d78', crossbelt: true },
