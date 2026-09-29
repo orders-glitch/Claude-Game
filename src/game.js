@@ -28,6 +28,9 @@ import { PlayerWalker, NPC, lookFor } from './entities/actors.js';
 import { modelLibrary } from './entities/modelLibrary.js';
 import { humans } from './entities/humans.js';
 import { props } from './world/props.js';
+import { flora, TREE_TYPES } from './world/flora.js';
+import { loadTerrainTextures } from './world/terrainMaterial.js';
+import { TerrainDetail } from './world/terrain.js';
 import { ISLANDS, PORTS, NATIONS, SHIP_CLASSES, SHIP_NAMES, GOODS, SALVAGE_CAMP, MONTHS } from './game/data.js';
 import { GameState } from './game/state.js';
 import { Missions } from './game/missions.js';
@@ -115,7 +118,9 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(this.state.settings.fov, window.innerWidth / window.innerHeight, 0.3, 24000);
 
     await step(0.1, 'Stowing the cargo…');
-    await props.load();
+    await Promise.all([props.load(), loadTerrainTextures(), flora.load(TREE_TYPES)]);
+    flora.bakeImpostors(renderer);
+    this.flora = flora;
     await step(0.12, 'Surveying the islands…');
     this.terrain = new Terrain(ISLANDS);
     this.towns = {};
@@ -135,6 +140,7 @@ export class Game {
     this.terrain.bakeHeightmap(1024);
     await step(0.4, 'Raising the islands…');
     this.terrain.buildMeshes(scene, q);
+    this.terrainDetail = new TerrainDetail(this.terrain, scene, q === 'low' ? { cell: 4, radius: 1 } : q === 'medium' ? { cell: 2, radius: 1 } : { cell: 2, radius: 2 });
     await step(0.55, 'Building the colonies…');
     for (const t of this.townList) t.build(scene);
     this.shipBlockers = this.townList.flatMap((t) => t.shipBlockers);
@@ -592,6 +598,8 @@ export class Game {
     this.effects.update(dt, this.sky, this.weather.fog);
     this.vegetation.update(dt, this.camera.position, this.wind.strength * (1 + this.sky.storm));
     props.update(this.camera.position);
+    flora.update(this.camera.position, this.sky);
+    this.terrainDetail.update(this.camera.position);
     this.wildlife.update(dt, this.focus, this.sky.nightFactor + this.sky.storm * 0.8);
     if (this.mode !== 'title') {
       this.updateNotoriety(dt);

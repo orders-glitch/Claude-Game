@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { mulberry32, clamp } from '../core/noise.js';
 import { props } from './props.js';
+import { flora, TREE_TYPES } from './flora.js';
 
 const CHUNK = 700;
 const DETAIL_CHUNK = 120; // ground detail (ferns, shells, stumps) is culled much closer
@@ -233,7 +234,20 @@ export class Vegetation {
     const buckets = new Map(); // chunkKey -> type -> [matrices]
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), pv = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0), tiltAxis = new THREE.Vector3();
+    const species = TREE_TYPES.filter((t) => flora.has(t));
+    this.trees = {}; // species -> [[x,y,z,yaw,scale]] for the flora near-field
     const push = (type, x, y, z, rotY, scale, tilt = 0) => {
+      if (type === 'tree' && species.length) {
+        const sp = species[Math.floor(((x * 12.9898 + z * 78.233) % 1 + 1) % 1 * species.length) % species.length];
+        const entry = [x, y + 0.25, z, rotY, 0.7 + (scale - 0.75) / 0.75 * 0.5];
+        (this.trees[sp] || (this.trees[sp] = [])).push(entry);
+        type = 'tree:' + sp;
+        const key = Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
+        if (!buckets.has(key)) buckets.set(key, {});
+        const b = buckets.get(key);
+        (b[type] || (b[type] = [])).push(entry);
+        return;
+      }
       if (!typeMap[type]) return;
       const d = detail.has(type);
       const key = (d ? 'd' : '') + Math.floor(x / (d ? DETAIL_CHUNK : CHUNK)) + ',' + Math.floor(z / (d ? DETAIL_CHUNK : CHUNK));
@@ -311,6 +325,7 @@ export class Vegetation {
       }
     }
 
+    if (species.length) flora.initNear(scene, this.trees, quality !== 'low');
     this.counts = {};
     for (const b of buckets.values()) for (const k in b) this.counts[k] = (this.counts[k] || 0) + b[k].length;
     // build instanced meshes per chunk
@@ -323,6 +338,7 @@ export class Vegetation {
       group.userData.detail = d;
       for (const kind in b) {
         const list = b[kind];
+        if (kind.startsWith('tree:')) { group.add(flora.impostorMesh(kind.slice(5), list)); continue; }
         for (const tName of typeMap[kind]) {
           const t = this.types[tName];
           const im = new THREE.InstancedMesh(t.geo, t.mat, list.length);

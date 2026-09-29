@@ -1,7 +1,7 @@
 // Island terrain: analytic height function shared by rendering, physics, AI and the chart.
 import * as THREE from 'three';
 import { Simplex, smoothstep, lerp, clamp } from '../core/noise.js';
-import { detailNoiseTexture } from '../core/textures.js';
+import { makeTerrainMaterial } from './terrainMaterial.js';
 
 export const SEA_FLOOR = -40;
 export const WORLD_HALF = 9000;
@@ -150,14 +150,44 @@ export class Terrain {
   }
 
   // ------------------------------------------------------------------ rendering
+  // Surface weights for one vertex: [sand, grass, forest floor, rock] (+ dirt = remainder), plus a tint
+  // colour used when photo textures are unavailable.
+  surface(x, z, h, slope, is, splat, col) {
+    const n1 = this.noise.noise2(x * 0.01, z * 0.01);
+    const n2 = this.noise.noise2(x * 0.07 + 40, z * 0.07);
+    const jun = clamp((is ? is.jungle : 0.4) + n1 * 0.35, 0, 1);
+    const sandT = 1 - smoothstep(1.7 + n1 * 0.8, 3.0 + n1 * 0.8, h);
+    let forest = smoothstep(0.38, 0.7, jun + n2 * 0.12);
+    let grass = 1 - forest;
+    grass *= 1 - sandT; forest *= 1 - sandT;
+    let rock = smoothstep(0.8, 1.25, slope + n2 * 0.12);
+    if (is && h > is.peak * 0.8 && is.peak > 60) rock = Math.max(rock, 0.3);
+    if (h < -2) rock = Math.max(rock, smoothstep(0.35, 0.7, slope)); // reef shelves
+    let dirt = 0;
+    for (const zn of this.zones) {
+      if (!zn.dirt || h < 0.5) continue;
+      const dd = Math.hypot(x - zn.x, z - zn.z) / zn.r;
+      if (dd < 1) dirt = Math.max(dirt, clamp((1 - dd) * 2.4, 0, 0.9) * (0.75 + n2 * 0.25));
+    }
+    const keep = (1 - rock) * (1 - dirt);
+    splat[0] = sandT * keep; splat[1] = grass * keep; splat[2] = forest * keep; splat[3] = rock * (1 - dirt);
+    if (col) {
+      const c = TINTS;
+      const s0 = h < 0.7 ? c.wetSand : c.sand, k = 0.92 + n2 * 0.08;
+      col.setRGB(
+        (s0.r * splat[0] + c.grass.r * splat[1] + c.jungle.r * splat[2] + c.rock.r * splat[3] + c.dirt.r * dirt) * k,
+        (s0.g * splat[0] + c.grass.g * splat[1] + c.jungle.g * splat[2] + c.rock.g * splat[3] + c.dirt.g * dirt) * k,
+        (s0.b * splat[0] + c.grass.b * splat[1] + c.jungle.b * splat[2] + c.rock.b * splat[3] + c.dirt.b * dirt) * k);
+    }
+  }
+
+  // Far terrain: one coarse mesh per island (the near field is covered by TerrainDetail tiles)
   buildMeshes(scene, quality = 'high') {
-    this.material = makeTerrainMaterial();
+    this.material = makeTerrainMaterial({ cutFine: true });
     this.meshes = [];
     const budget = quality === 'low' ? 45000 : quality === 'medium' ? 80000 : 140000;
     const col = new THREE.Color();
-    const sand = new THREE.Color('#e3d3a4'), wetSand = new THREE.Color('#b8a47a'), under = new THREE.Color('#c9bd92');
-    const grass = new THREE.Color('#5f7d2f'), jungle = new THREE.Color('#34521f'), scrub = new THREE.Color('#8b8a50');
-    const rock = new THREE.Color('#7d7465'), dirt = new THREE.Color('#9a8766'), tmp = new THREE.Color();
+    const sp = [0, 0, 0, 0];
     for (const is of this.islands) {
       const margin = 90;
       const ex = Math.sqrt((is.rx * is.cos) ** 2 + (is.rz * is.sin) ** 2) + is.warpAmp + margin;
@@ -168,6 +198,7 @@ export class Terrain {
       const nz = Math.ceil((ez * 2) / cell) + 1;
       const pos = new Float32Array(nx * nz * 3);
       const colors = new Float32Array(nx * nz * 3);
+      const splat = new Float32Array(nx * nz * 4);
       const hs = new Float32Array(nx * nz);
       for (let j = 0; j < nz; j++) {
         for (let i = 0; i < nx; i++) {
@@ -178,35 +209,15 @@ export class Terrain {
           pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = z;
         }
       }
-      // colours from height, slope and noise
       for (let j = 0; j < nz; j++) {
         for (let i = 0; i < nx; i++) {
           const k = j * nx + i;
-          const x = pos[k * 3], z = pos[k * 3 + 2], h = hs[k];
           const hl = hs[j * nx + Math.max(0, i - 1)], hr = hs[j * nx + Math.min(nx - 1, i + 1)];
           const hd = hs[Math.max(0, j - 1) * nx + i], hu = hs[Math.min(nz - 1, j + 1) * nx + i];
           const slope = Math.hypot(hr - hl, hu - hd) / (2 * cell);
-          const n1 = this.noise.noise2(x * 0.01, z * 0.01);
-          const n2 = this.noise.noise2(x * 0.07 + 40, z * 0.07);
-          if (h < -0.4) col.copy(under).lerp(wetSand, clamp(-h / 8, 0, 1));
-          else if (h < 0.7) col.copy(wetSand);
-          else if (h < 2.3 + n1 * 0.8) col.copy(sand);
-          else {
-            const jun = clamp(is.jungle + n1 * 0.35, 0, 1);
-            col.copy(scrub).lerp(grass, clamp(jun * 1.4, 0, 1)).lerp(jungle, clamp((jun - 0.4) * 1.6, 0, 1));
-            // sandy transition
-            col.lerp(sand, clamp(1 - (h - 2.3) / 1.6, 0, 1));
-            if (slope > 0.75) col.lerp(rock, clamp((slope - 0.75) * 1.8, 0, 0.85));
-            if (h > is.peak * 0.8 && is.peak > 60) col.lerp(rock, 0.2);
-          }
-          for (const zn of this.zones) {
-            if (zn.dirt && h > 0.5) {
-              const dd = Math.hypot(x - zn.x, z - zn.z) / zn.r;
-              if (dd < 1) col.lerp(dirt, clamp((1 - dd) * 2.2, 0, 0.85) * (0.75 + n2 * 0.25));
-            }
-          }
-          tmp.copy(col).multiplyScalar(0.92 + n2 * 0.08);
-          colors[k * 3] = tmp.r; colors[k * 3 + 1] = tmp.g; colors[k * 3 + 2] = tmp.b;
+          this.surface(pos[k * 3], pos[k * 3 + 2], hs[k], slope, is, sp, col);
+          splat.set(sp, k * 4);
+          colors[k * 3] = col.r; colors[k * 3 + 1] = col.g; colors[k * 3 + 2] = col.b;
         }
       }
       const idx = [];
@@ -220,6 +231,7 @@ export class Terrain {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      geo.setAttribute('splat', new THREE.BufferAttribute(splat, 4));
       geo.setIndex(idx);
       geo.computeVertexNormals();
       geo.computeBoundingSphere();
@@ -277,26 +289,131 @@ export class Terrain {
   }
 }
 
-function makeTerrainMaterial() {
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 });
-  const detail = detailNoiseTexture();
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uDetail = { value: detail };
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
-      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWPos = (modelMatrix * vec4(transformed,1.0)).xyz;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nuniform sampler2D uDetail;')
-      .replace('#include <color_fragment>', `#include <color_fragment>
-        vec3 dA = texture2D(uDetail, vWPos.xz * 0.013).rgb;
-        vec3 dB = texture2D(uDetail, vWPos.xz * 0.11).rgb;
-        float dd = dA.r * 0.55 + dB.g * 0.45;
-        diffuseColor.rgb *= 0.78 + dd * 0.44;
-        // wet band at the waterline
-        float wet = 1.0 - smoothstep(0.2, 1.1, vWPos.y);
-        diffuseColor.rgb *= 1.0 - wet * 0.25;`)
-      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-        roughnessFactor = mix(roughnessFactor, 0.35, wet);`);
-  };
-  return mat;
+const TINTS = {
+  sand: new THREE.Color('#e3d3a4'), wetSand: new THREE.Color('#b8a47a'), grass: new THREE.Color('#5f7d2f'),
+  jungle: new THREE.Color('#34521f'), rock: new THREE.Color('#7d7465'), dirt: new THREE.Color('#9a8766'),
+};
+
+// High-resolution terrain around the camera: square tiles with 2 m cells, built a few per frame, so what you
+// see near you matches the ground characters walk on. The coarse island meshes skip the covered rectangle.
+export class TerrainDetail {
+  constructor(terrain, scene, { tile = 128, cell = 2, radius = 2 } = {}) {
+    this.terrain = terrain;
+    this.scene = scene;
+    this.tile = tile;
+    this.cell = cell;
+    this.radius = radius;
+    this.material = makeTerrainMaterial();
+    this.tiles = new Map(); // "i,j" -> mesh | null (all deep water)
+    this.active = null; // centre tile of the rectangle currently cut from the coarse meshes
+  }
+
+  key(i, j) { return i + ',' + j; }
+
+  wanted(ci, cj) {
+    const out = [];
+    for (let dj = -this.radius; dj <= this.radius; dj++) for (let di = -this.radius; di <= this.radius; di++) out.push([ci + di, cj + dj]);
+    // nearest first
+    return out.sort((a, b) => Math.hypot(a[0] - ci, a[1] - cj) - Math.hypot(b[0] - ci, b[1] - cj));
+  }
+
+  build(i, j) {
+    const T = this.terrain, n = Math.round(this.tile / this.cell), c = this.cell;
+    const x0 = i * this.tile, z0 = j * this.tile;
+    // quick reject: nowhere near an island
+    let near = false;
+    const cx = x0 + this.tile / 2, cz = z0 + this.tile / 2;
+    for (const is of T.islands) if (Math.hypot(cx - is.x, cz - is.z) < is.boundR + this.tile) { near = true; break; }
+    if (!near) return null;
+    const W = n + 3; // heights with a one-cell border for normals
+    const hs = new Float32Array(W * W);
+    const isl = new Array(W * W);
+    let maxH = -1e9;
+    for (let b = 0; b < W; b++) for (let a = 0; a < W; a++) {
+      const h = Math.max(T.height(x0 + (a - 1) * c, z0 + (b - 1) * c), -30);
+      hs[b * W + a] = h; isl[b * W + a] = T.lastIsland;
+      if (h > maxH) maxH = h;
+    }
+    if (maxH < -12) return null;
+    const V = n + 1;
+    const skirt = 4 * V;
+    const pos = new Float32Array((V * V + skirt) * 3), nrm = new Float32Array((V * V + skirt) * 3);
+    const splat = new Float32Array((V * V + skirt) * 4), colors = new Float32Array((V * V + skirt) * 3);
+    const sp = [0, 0, 0, 0], col = new THREE.Color();
+    for (let b = 0; b < V; b++) for (let a = 0; a < V; a++) {
+      const k = b * V + a, g = (b + 1) * W + (a + 1);
+      const hl = hs[g - 1], hr = hs[g + 1], hd = hs[g - W], hu = hs[g + W];
+      const x = x0 + a * c, z = z0 + b * c;
+      pos[k * 3] = x; pos[k * 3 + 1] = hs[g]; pos[k * 3 + 2] = z;
+      const nx = hl - hr, ny = 2 * c, nz = hd - hu, L = Math.hypot(nx, ny, nz);
+      nrm[k * 3] = nx / L; nrm[k * 3 + 1] = ny / L; nrm[k * 3 + 2] = nz / L;
+      T.surface(x, z, hs[g], Math.hypot(hr - hl, hu - hd) / (2 * c), isl[g], sp, col);
+      splat.set(sp, k * 4);
+      colors[k * 3] = col.r; colors[k * 3 + 1] = col.g; colors[k * 3 + 2] = col.b;
+    }
+    const idx = [];
+    for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
+      const p = b * V + a, q = p + 1, r = p + V, t = r + 1;
+      idx.push(p, r, q, q, r, t);
+    }
+    // skirts hanging 3 m below each edge hide any crack against neighbouring tiles or the coarse mesh
+    const edges = [[0, 0, 1, 0], [0, n, 1, 0], [0, 0, 0, 1], [n, 0, 0, 1]];
+    let s = V * V;
+    for (const [ea, eb, da, db] of edges) {
+      const first = s;
+      for (let t = 0; t < V; t++, s++) {
+        const src = (eb + db * t) * V + (ea + da * t);
+        pos[s * 3] = pos[src * 3]; pos[s * 3 + 1] = pos[src * 3 + 1] - 3; pos[s * 3 + 2] = pos[src * 3 + 2];
+        nrm.copyWithin(s * 3, src * 3, src * 3 + 3);
+        splat.copyWithin(s * 4, src * 4, src * 4 + 4);
+        colors.copyWithin(s * 3, src * 3, src * 3 + 3);
+        if (t > 0) {
+          const a0 = (eb + db * (t - 1)) * V + (ea + da * (t - 1)), a1 = src, b0 = first + t - 1, b1 = first + t;
+          idx.push(a0, b0, a1, a1, b0, b1, a0, a1, b0, a1, b1, b0); // both windings: skirts are seen from either side
+        }
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    geo.setAttribute('splat', new THREE.BufferAttribute(splat, 4));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, this.material);
+    mesh.receiveShadow = true;
+    mesh.castShadow = maxH > 6;
+    mesh.name = 'terrainTile';
+    return mesh;
+  }
+
+  update(camPos, budgetMs = 5) {
+    const ci = Math.floor(camPos.x / this.tile), cj = Math.floor(camPos.z / this.tile);
+    const want = this.wanted(ci, cj);
+    // a jump (teleport, docking) builds everything at once
+    const jump = !this.active || Math.abs(this.active[0] - ci) > 2 || Math.abs(this.active[1] - cj) > 2;
+    const t0 = performance.now();
+    for (const [i, j] of want) {
+      const k = this.key(i, j);
+      if (this.tiles.has(k)) continue;
+      if (!jump && performance.now() - t0 > budgetMs) break;
+      const m = this.build(i, j);
+      this.tiles.set(k, m);
+      if (m) { m.visible = false; this.scene.add(m); } // shown once the whole square is ready
+    }
+    const ready = want.every(([i, j]) => this.tiles.has(this.key(i, j)));
+    if (ready && (!this.active || this.active[0] !== ci || this.active[1] !== cj)) {
+      this.active = [ci, cj];
+      const r = this.radius, t = this.tile;
+      this.terrain.material.userData.fineRect.value.set((ci - r) * t + 0.5, (cj - r) * t + 0.5, (ci + r + 1) * t - 0.5, (cj + r + 1) * t - 0.5);
+      // drop tiles well outside the active square
+      for (const [k, m] of this.tiles) {
+        const [i, j] = k.split(',').map(Number);
+        if (Math.abs(i - ci) > r + 1 || Math.abs(j - cj) > r + 1) {
+          if (m) { this.scene.remove(m); m.geometry.dispose(); }
+          this.tiles.delete(k);
+        } else if (m) m.visible = Math.abs(i - ci) <= r && Math.abs(j - cj) <= r;
+      }
+    }
+  }
 }
