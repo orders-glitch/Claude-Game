@@ -194,7 +194,8 @@ export class Town {
   // is a world point inside the built town (streets, lots)? used to keep trees out of it
   inTown(x, z, ground = true) {
     // trampled town ground: no undergrowth (trees and palms may still stand between the houses)
-    if (ground && this.groundZones) for (const g of this.groundZones) if ((x - g.x) ** 2 + (z - g.z) ** 2 < g.r * g.r) return true;
+    const open = this.port.style === 'shanty' || this.port.style === 'french'; // camp and village keep their trees
+    if ((ground || !open) && this.groundZones) for (const g of this.groundZones) if ((x - g.x) ** 2 + (z - g.z) ** 2 < g.r * g.r) return true;
     const M = this.mask;
     if (!M) return Math.hypot(x - this.center.x, z - this.center.z) < this.R * 1.35;
     const { a, b } = this.fromWorld(x, z);

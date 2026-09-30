@@ -315,7 +315,7 @@ export class CityKit {
       if (!t.prop('cannon_01', g.a, y + bh - 0.1, g.b, r + CANNON_YAW + (cv > 0 ? Math.PI : 0), 1.35)) B.cyl('metal', 0.22, 0.34, 3, 8, T(g.a, y + bh + 0.6, g.b, r, 1, 1, 1, Math.PI / 2), '#1c1c1e');
       if (cv < 0) t.cannons.push(t.toWorld(g.a, g.b, y + bh + 0.6));
       if (cv < 0 && !o.ruined) {
-        const gp = P(cu * (half + 3.6), cv * (half + 3.6));
+        const gp = P(cu * (half + 2.2), cv * (half + 2.2)); // on the bastion's salient
         B.cyl(bucket, 0.8, 0.8, 2.4, 8, T(gp.a, y + bh + 1.2, gp.b), col);
         B.add(bucket, new THREE.ConeGeometry(1.0, 1.2, 8), T(gp.a, y + bh + 3, gp.b), o.cap || '#b0a58c');
       }
@@ -336,10 +336,22 @@ export class CityKit {
     B.cyl('wood', 0.14, 0.2, 16, 6, T(fp.a, y + 8, fp.b), '#3a2a1a');
     t.flagPos = t.toWorld(fp.a, fp.b, y + 15);
     if (!o.ruined) {
-      const bp = P(0, half * 0.35);
-      B.box(o.barrackB || 'wall', half * 1.1, 5, 6, T(bp.a, y + 2.5, bp.b, r), o.barrackCol || '#efe9dc');
-      B.add(o.barrackRoof || 'roof', hipRoofGeometry(half * 1.1, 6, 2.4, 0.4), T(bp.a, y + 5, bp.b, r), o.barrackRoofCol || '#8a5a40');
-      t.addCollider(bp.a, bp.b, half * 0.55 + 0.2, 3.2, r, 5);
+      // two-storey barrack: louvred shutters above, barred windows below, a hipped roof
+      const bp = P(0, half * 0.35), bw = half * 1.1, bh = 6.4;
+      B.box(o.barrackB || 'wall', bw, bh, 6.5, T(bp.a, y + bh / 2, bp.b, r), o.barrackCol || '#efe9dc');
+      B.add(o.barrackRoof || 'roof', hipRoofGeometry(bw, 6.5, 2.6, 0.5), T(bp.a, y + bh, bp.b, r), o.barrackRoofCol || '#8a5a40');
+      const nwin = Math.max(3, Math.round(bw / 3.2));
+      for (let k = 0; k < nwin; k++) {
+        const u = -bw / 2 + (k + 0.5) * (bw / nwin);
+        for (const side of [-1, 1]) {
+          const q = P(u, half * 0.35 + side * 3.27);
+          B.box('plain', 1.0, 1.1, 0.08, T(q.a, y + 1.6, q.b, r), '#161310');
+          if (k === Math.floor(nwin / 2) && side < 0) { B.box('wood', 1.3, 2.4, 0.1, T(q.a, y + 1.2, q.b, r), '#2a2622'); continue; }
+          B.box('window', 0.9, 1.4, 0.08, T(q.a, y + 4.4, q.b, r), '#1d1812');
+          for (const sh of [-1, 1]) { const w2 = P(u + sh * 0.75, half * 0.35 + side * 3.3); B.box('wood', 0.5, 1.5, 0.06, T(w2.a, y + 4.4, w2.b, r), o.shutter || '#4d6a4a'); }
+        }
+      }
+      t.addCollider(bp.a, bp.b, bw / 2 + 0.2, 3.4, r, bh);
     }
     t.guardPosts.push(t.toWorld(fp.a - 4 * s, fp.b - 4 * c, y), t.toWorld(P(0, half + 4).a, P(0, half + 4).b, y));
     t.fortPos = t.toWorld(fp.a, fp.b, y);
@@ -488,7 +500,9 @@ export class CityKit {
     const y = t.groundAt(a, b);
     for (let k = 0; k < 6; k++) B.box('wood', 1.2, 0.18, 0.18, T(a, y + 0.12, b, (k / 6) * Math.PI), '#3a2a1a');
     B.box('stone', 1.6, 0.2, 1.6, T(a, y + 0.05, b, 0.4), '#5a5048');
+    B.box('glow', 0.7, 0.12, 0.7, T(a, y + 0.2, b, 0.7), '#ff7a30'); // embers
     t.fires.push(t.toWorld(a, b, y + 0.4));
+    t.lanterns.push(t.toWorld(a, b, y + 0.8));
     for (let k = 0; k < 3; k++) {
       const ang = (k / 3) * Math.PI * 2 + 0.4, la = a + Math.sin(ang) * 2.4, lb = b + Math.cos(ang) * 2.4;
       B.cyl('wood', 0.22, 0.22, 1.8, 6, T(la, y + 0.22, lb, ang + Math.PI / 2, 1, 1, 1, 0, Math.PI / 2), '#5a4632');
@@ -564,7 +578,7 @@ function havana(K) {
   K.claim(...Object.values(K.L(-58, 86)), 10, 20, K.rot(260));
   K.plaza(-112, 186, 80, 34, 30, { fountain: true, pave: ['cobble', '#cfc3a8'] }); // San Francisco, open to the bay
   const sf = K.L(-118, 232);
-  church(K.B, t, rnd, sf.a, sf.b, K.rot(80), { len: 44, wid: 16, h: 12, towerH: 32, tower: 'side', dome: true });
+  church(K.B, t, rnd, sf.a, sf.b, K.rot(80), { len: 44, wid: 16, h: 12, towerH: 38, tower: 'side', dome: true, tiers: 3 });
   K.claim(sf.a, sf.b, 14, 24, K.rot(80));
   cloister(K, -158, 240, 80);
   K.plaza(-196, 222, 0, 40, 36, { market: 8, fountain: true, pave: ['cobble', '#c9bda4'] }); // Plaza Vieja
@@ -574,6 +588,14 @@ function havana(K) {
     const f = K.dir(br);
     const side = { a: -f.b, b: f.a };
     for (let k = -1; k <= 1; k++) K.put(portales, a + side.a * k * 12.2 - f.a * 2, b + side.b * k * 12.2 - f.b * 2, K.rot(br), 12, 13);
+  }
+  // the other churches and convents that give the skyline its towers (Espíritu Santo, Santa Clara, Paula,
+  // Santo Domingo, Santo Cristo)
+  for (const [x, z, br, len, tw] of [[-250, 330, 80, 26, 22], [-236, 120, 170, 30, 26], [-150, 418, 60, 24, 20], [-190, 40, 80, 28, 24], [-270, 220, 350, 24, 20]]) {
+    const c = K.L(x, z);
+    if (!K.free(c.a, c.b, 7, len / 2 + 2, K.rot(br))) continue;
+    church(K.B, t, rnd, c.a, c.b, K.rot(br), { len, wid: 11, h: 9, towerH: tw, tower: 'side', tiers: 2 });
+    K.claim(c.a, c.b, 9, len / 2 + 3, K.rot(br));
   }
   K.special('tavern', (B, t2, r, a, b, rot, w, d) => spanishHouse(B, t2, r, a, b, rot, w, d, { storeys: 2, balcony: true }), -62, 150, 80, 13, 11, { label: 'Taberna' });
   K.special('merchant', (B, t2, r, a, b, rot, w, d) => warehouse(B, t2, r, a, b, rot, w, d, { col: '#e8dcc0', roofCol: '#a85e3a', h: 7 }), -128, 290, 60, 24, 12, { label: 'Almacén (Merchant)' });

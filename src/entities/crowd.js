@@ -489,7 +489,7 @@ export class Crowd {
       const mesh = this.meshes[a.look];
       const attr = mesh.geometry.attributes.iAnim;
       // at night most people are indoors
-      const hidden = night && (i % 4 !== 0);
+      const hidden = night && (i % (town.port.style === 'shanty' ? 5 : 4) !== 0) && !(town.port.style === 'shanty' && i % 5 < 3); // the Brethren carouse till dawn
       if (a.mode === 'ride') {
         const g = a.ride.bt.group;
         const p = a.ride.seat.clone().applyMatrix4(g.matrixWorld);

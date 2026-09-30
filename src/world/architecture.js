@@ -441,7 +441,7 @@ export function warehouse(B, t, rnd, a, b, rot, w, d, o = {}) {
 
 // a church: nave with a gabled tiled roof, a stone portal, and a bell tower with an open belfry
 export function church(B, t, rnd, a, b, rot, o = {}) {
-  const { len = 30, wid = 12, h = 9, towerH = 22, tower = 'side', wall = '#f0e8d6', roofB = 'roof', roofCol = '#a5593a', bucket = 'wall', dome = false, spire = false, cote = false } = o;
+  const { len = 30, wid = 12, h = 9, towerH = 22, tower = 'side', wall = '#f0e8d6', roofB = 'roof', roofCol = '#a5593a', bucket = 'wall', dome = false, spire = false, cote = false, tiers = 1 } = o;
   const m = framer(a, b, rot);
   const { lo, hi } = footing(t, a, b, wid, len, rot);
   const y0 = lo - 0.4, base = hi + 0.3;
@@ -469,7 +469,23 @@ export function church(B, t, rnd, a, b, rot, o = {}) {
     for (const [fx, fz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) B.box('window', fx ? 0.2 : tw * 0.45, 2.6, fz ? 0.2 : tw * 0.45, m(tx + fx * tw / 2, base + towerH - 2.2, tz + fz * tw / 2), '#1a140e');
     B.box(bucket, tw + 0.5, 0.4, tw + 0.5, m(tx, base + towerH, tz), '#e8dcc4');
     B.box(bucket, tw + 0.5, 0.35, tw + 0.5, m(tx, base + towerH - 4, tz), '#e8dcc4');
-    if (spire) B.add(o.spireB || 'shingle', hipRoofGeometry(tw, tw, tw * 1.8, 0.2), m(tx, base + towerH + 0.2, tz), o.spireCol || '#5c4a3c');
+    // stepped upper stages, each with its own belfry, like the baroque towers of Havana
+    let top = towerH, sw = tw;
+    for (let k = 1; k < tiers; k++) {
+      const nh = sw * 1.2; sw *= 0.78;
+      B.box(bucket, sw, nh, sw, m(tx, base + top + nh / 2, tz), wall);
+      for (const [fx, fz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) B.box('window', fx ? 0.2 : sw * 0.42, nh * 0.45, fz ? 0.2 : sw * 0.42, m(tx + fx * sw / 2, base + top + nh * 0.55, tz + fz * sw / 2), '#1a140e');
+      B.box(bucket, sw + 0.4, 0.35, sw + 0.4, m(tx, base + top + nh, tz), '#e8dcc4');
+      for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) B.add('stone', new THREE.SphereGeometry(0.35, 6, 4), m(tx + cx * sw / 2, base + top + nh + 0.5, tz + cz * sw / 2), '#e8dcc4'); // finials
+      top += nh;
+    }
+    if (tiers > 1) {
+      // lantern and cross
+      B.cyl(bucket, sw * 0.28, sw * 0.32, 2.2, 8, m(tx, base + top + 1.1, tz), wall);
+      B.add('stone', new THREE.SphereGeometry(sw * 0.3, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), m(tx, base + top + 2.2, tz), '#8f949a');
+      B.box('metal', 0.12, 2, 0.12, m(tx, base + top + 3.6, tz), '#2a2016');
+      B.box('metal', 0.9, 0.12, 0.12, m(tx, base + top + 4, tz), '#2a2016');
+    } else if (spire) B.add(o.spireB || 'shingle', hipRoofGeometry(tw, tw, tw * 1.8, 0.2), m(tx, base + towerH + 0.2, tz), o.spireCol || '#5c4a3c');
     else {
       B.add(roofB, hipRoofGeometry(tw * 0.9, tw * 0.9, tw * 0.45, 0.2), m(tx, base + towerH + 0.2, tz), roofCol);
       B.box('metal', 0.12, 2, 0.12, m(tx, base + towerH + tw * 0.45 + 1, tz), '#2a2016');
