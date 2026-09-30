@@ -472,6 +472,19 @@ export class Ship {
     }
   }
 
+  // A new topmast swayed up (a jury rig at sea carries less canvas than the real thing: `keep` of its share)
+  restoreMast(m, keep = 1) {
+    if (!this.mastsDown.has(m)) return;
+    this.mastsDown.delete(m);
+    const ms = this.model.masts, i = ms.indexOf(m);
+    if (this.model.uCut && i < 3) this.model.uCut.value[i].w = 0;
+    this.mastLoss = Math.max(0, this.mastLoss - m.share * 0.5 * keep);
+    if (!this.mastsDown.size && keep >= 1) this.mastLoss = 0;
+    if (this.model.masthead) this.model.masthead.visible = true;
+  }
+
+  restoreAllMasts() { for (const m of [...this.mastsDown]) this.restoreMast(m, 1); this.mastLoss = 0; this.juryLoss = 0; }
+
   // A topmast shot away: it and everything it carries comes down over the side, and her speed goes with it
   loseMast(nearZ, world, fromV) {
     const ms = this.model.masts;
@@ -486,7 +499,7 @@ export class Ship {
     this.mastsDown.add(best);
     const i = ms.indexOf(best);
     if (this.model.uCut && i < 3) this.model.uCut.value[i].set(best.z0, best.z1, best.cutY, 1);
-    this.mastLoss = Math.min(0.75, this.mastLoss + best.share * 0.85);
+    this.mastLoss = Math.min(0.7, this.mastLoss + best.share * 0.5); // (the lower mast and its course still stand)
     this.sails = Math.min(this.sails, this.sailsMax * (1 - this.mastLoss));
     // the masthead pennant goes with the mast it flies from
     if (this.model.masthead && this.model.scanned) {

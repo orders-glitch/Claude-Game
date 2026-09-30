@@ -300,14 +300,19 @@ export class Game {
     this.clearTreasureMarkers();
   }
 
-  newGame(name, shipName) {
+  newGame(name, shipName, startPort = 'nassau') {
     GameState.deleteSave();
     const settings = this.state.settings;
     this.state.reset(name);
     this.state.settings = settings;
     this.state.shipName = shipName;
+    if (startPort !== 'nassau' && this.towns[startPort]) this.state.lastPort = startPort;
     this.missions = new Missions(this);
     this.startSession(false);
+    if (startPort !== 'nassau' && this.towns[startPort]) {
+      this.ui.toast(`You begin in ${this.towns[startPort].port.name}. (The story starts in Nassau: sail there to meet Hornigold.)`, 'info', 6000);
+      return;
+    }
     this.ui.dialog('Nassau, New Providence — June 1716', 'The Peace of Utrecht has ended the war with Spain, and with it your privateer\'s commission. Like hundreds of other seamen, you have drifted to Nassau — a lawless harbour of wrecks, tents and taverns, where the Brethren of the Coast answer to no king. Captain Benjamin Hornigold wants to meet you.', () => {});
   }
 
@@ -484,7 +489,7 @@ export class Game {
   // ======================================================================== modes
   enterSail() {
     this.mode = 'sail';
-    this.ui.hint('[W]/[S] make / shorten sail · [A]/[D] helm · look off the beam, [Left Click] fire · hold [Right Click] gunnery view (mouse sets range) · [Q]/[E] fire larboard / starboard · [1][2][3] shot · [R] anchor · [L] lanterns · [J] jettison · [F] dock / board · [M] chart', true);
+    this.ui.hint('[W]/[S] make / shorten sail · [A]/[D] helm · look off the beam, [Left Click] fire · hold [Right Click] gunnery view (mouse sets range) · [Q]/[E] fire larboard / starboard · [1][2][3] shot · [R] anchor · [H] repair · [L] lanterns · [J] jettison · [F] dock / board · [M] chart', true);
     const p = this.playerShip;
     p.anchored = false;
     this.camYaw = p.heading + 0.35;
@@ -666,6 +671,7 @@ export class Game {
       if (sh.lanternsOn !== on) { sh.lanternsOn = on; sh.model.setLanterns?.(on); }
       if (sh.lanternLight) sh.lanternLight.intensity = on ? 9 * night : 0;
     }
+    this.updateWaterLights(night);
     sharedMaterials().windowLit.emissiveIntensity = night * 2.2;
     shipMaterials().window.emissiveIntensity = night * 2.5;
     for (const t of this.townList) if (t.group && t.center.distanceTo(this.camera.position) < 2500) t.update(dt, shipTime.value, night);
@@ -814,6 +820,8 @@ export class Game {
       this.ui.toast(p.lanternsLit ? 'Light the lanterns.' : 'Douse the lanterns! Not a light showing, lads — we\'ll slip by in the dark.', 'info', 2500);
     }
     if (inp.hit('KeyJ')) this.jettison(p);
+    if (inp.hit('KeyH')) this.toggleRepair(p);
+    this.updateRepair(p, dt);
     if (inp.hit('KeyG')) {
       const kind = p.flagKind === 'pirate' ? 'britain' : 'pirate';
       p.setVisibleFlag(kind);
@@ -1167,6 +1175,82 @@ export class Game {
       }
       if (ship.role === 'pirate') ship.aggro.add(PLAYER_ID);
       if (ship.role !== 'merchant') ship.aggro.add(PLAYER_ID);
+    }
+  }
+
+  // the nearest lanterns (ships' stern lanterns, the towns' street lamps) shine on the water: the ocean shader
+  // takes the twelve closest to the camera
+  updateWaterLights(night) {
+    const U = this.ocean.uniforms.uLights.value;
+    const cam = this.camera.position;
+    const found = [];
+    if (night > 0.3) {
+      const v = new THREE.Vector3();
+      for (const sh of this.ships) {
+        if (!sh.lanternsOn) continue;
+        const pts = sh.model.lanternPoints || sh.model.lanterns || [];
+        for (const lp of pts) { v.copy(lp).applyMatrix4(sh.group.matrixWorld); const d = v.distanceToSquared(cam); if (d < 1200 * 1200) found.push([d, v.x, v.y, v.z, 1]); }
+      }
+      for (const t of this.townList) {
+        if (!t.lanterns || t.center.distanceToSquared(cam) > 1500 * 1500) continue;
+        for (const l of t.lanterns) { if (l.y > 12) continue; const d = l.distanceToSquared(cam); if (d < 700 * 700) found.push([d, l.x, l.y, l.z, 0.7]); }
+      }
+      found.sort((a, b) => a[0] - b[0]);
+    }
+    const k = clamp((night - 0.3) / 0.3, 0, 1);
+    for (let i = 0; i < 12; i++) { const f = found[i]; if (f) U[i].set(f[1], f[2], f[3], f[4] * k); else U[i].w = 0; }
+  }
+
+  // Repairs at sea: the carpenter and his mates plug shot holes below the waterline with shot-plugs and sheet
+  // lead, the bosun's crew knot and splice the cut rigging, the sailmaker patches the canvas, and a jury topmast
+  // is swayed up in place of one shot away. At sea she can be made good only so far (three quarters of her hull,
+  // most of her canvas); a proper job wants a shipwright. Slower under fire, with a short crew, or with all
+  // hands at the sheets.
+  repairCaps(p) {
+    return { hull: p.hullMax * 0.75, sails: p.sailsMax * 0.85 * (1 - p.mastLoss) };
+  }
+
+  toggleRepair(p) {
+    if (p.repairing) { p.repairing = false; this.ui.toast('Belay the repairs — all hands to their stations!', 'info', 2000); return; }
+    const cap = this.repairCaps(p);
+    if (p.hull >= cap.hull - 0.5 && p.sails >= cap.sails - 0.5 && !p.mastsDown.size) {
+      this.ui.toast('“She\'s as sound as we can make her at sea, Captain. The rest wants a shipwright and a careening beach.” — Mr. Ward, first mate', 'mate', 4500);
+      return;
+    }
+    p.repairing = true;
+    p.juryT = 0;
+    this.ui.toast('“Carpenter\'s crew to work! Plug those shot holes — bosun, knot and splice the rigging — sailmaker, patch that canvas!” [H] to stop', 'mate', 4500);
+  }
+
+  updateRepair(p, dt) {
+    const el = this._repairBadge || (this._repairBadge = Object.assign(document.createElement('div'), { className: 'stealth-badge' }));
+    if (!el.parentNode) document.body.appendChild(el);
+    if (!p.repairing || this.mode !== 'sail') { el.style.display = 'none'; return; }
+    const cap = this.repairCaps(p);
+    const hands = clamp(p.crew / Math.max(1, p.cls.crewMin * 1.5), 0.25, 1);
+    const rate = hands * (this.combatT > 0 ? 0.35 : 1) * (p.sailSet > 0.7 ? 0.6 : 1) * (p.fire > 0 ? 0.2 : 1);
+    if (p.hull < cap.hull) p.hull = Math.min(cap.hull, p.hull + p.hullMax * 0.006 * rate * dt);
+    if (p.sails < cap.sails) p.sails = Math.min(cap.sails, p.sails + p.sailsMax * 0.01 * rate * dt);
+    // a jury topmast, one at a time
+    if (p.mastsDown.size) {
+      p.juryT = (p.juryT || 0) + dt * rate;
+      if (p.juryT > 45) {
+        p.juryT = 0;
+        const m = [...p.mastsDown].pop();
+        p.restoreMast(m, 0.6);
+        this.ui.toast('“Jury topmast swayed up and rigged, Captain! She\'ll not carry what she did, but she\'ll carry sail.”', 'mate', 3500);
+      }
+    }
+    // the sound of it: mallets and caulking irons
+    if (Math.random() < dt * 0.8 * rate) this.audio.hammer?.(p.position, 2 + Math.floor(Math.random() * 3));
+    const pct = Math.round(100 * p.hull / p.hullMax);
+    el.textContent = `Repairing — hull ${pct}% (to ${Math.round(100 * cap.hull / p.hullMax)}% at sea)${p.mastsDown.size ? ' · rigging a jury topmast' : ''}${this.combatT > 0 ? ' · under fire, slowly' : ''}`;
+    el.style.display = 'block';
+    el.style.top = '190px';
+    const cap2 = this.repairCaps(p);
+    if (p.hull >= cap2.hull - 0.01 && p.sails >= cap2.sails - 0.01 && !p.mastsDown.size) {
+      p.repairing = false;
+      this.ui.toast('“Repairs done, Captain — as far as they can be at sea.” — Mr. Ward, first mate', 'mate', 3500);
     }
   }
 

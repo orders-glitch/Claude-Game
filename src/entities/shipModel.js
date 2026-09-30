@@ -56,6 +56,7 @@ function sternLanterns(group, deckY, sternZ, beam, count) {
     cores.push(core); halos.push(h);
   }
   group.add(out);
+  group.userData.lanternPoints = cores.map((c) => c.position.clone());
   return (on) => { for (const c of cores) c.visible = on; for (const h of halos) h.visible = on; };
 }
 
@@ -86,6 +87,7 @@ function buildScannedShip(cls, nation, opts) {
   setLanterns(false);
   return {
     setLanterns,
+    lanternPoints: group.userData.lanternPoints,
     group, sails: S.sails, sailUniforms: S.uniforms, gunPositions, lanterns: [], mastTops: [masthead.position.clone()], bsTip: new THREE.Vector3(0, deckY, S.box.min.z),
     ensign, masthead, draft, deckY, sheer: () => deckY, length: L, beam, scanned: true, deckHalf: Math.min(beam / 2, S.hullHalf || beam / 2) * 0.85, deckLen: S.hullZ ? S.hullZ[1] - S.hullZ[0] : L * 0.7, deckMid: S.hullZ ? (S.hullZ[0] + S.hullZ[1]) / 2 : 0,
     masts: S.masts, uCut: S.uniforms.uCut,

@@ -55,6 +55,9 @@ export class UI {
       if (b) setTimeout(() => b.blur(), 0);
     }, true);
     window.addEventListener('scroll', () => { if (window.scrollY || window.scrollX) window.scrollTo(0, 0); });
+    // ?start=havana preselects where a new game begins (handy for testing)
+    const qs = new URLSearchParams(location.search).get('start');
+    if (qs && $('start-port').querySelector(`option[value="${CSS.escape(qs)}"]`)) $('start-port').value = qs;
     $('title').addEventListener('click', (e) => {
       const act = e.target.closest('button')?.dataset.act;
       if (!act) return;
@@ -63,7 +66,7 @@ export class UI {
       if (act === 'continue') g.continueGame();
       if (act === 'new') { $('newgame').classList.remove('hidden'); $('title-menu').classList.add('hidden'); $('captain-name').focus(); }
       if (act === 'back') { $('newgame').classList.add('hidden'); $('title-menu').classList.remove('hidden'); }
-      if (act === 'begin') g.newGame($('captain-name').value.trim() || 'James Kidd', $('ship-name').value.trim() || 'Ranger');
+      if (act === 'begin') g.newGame($('captain-name').value.trim() || 'James Kidd', $('ship-name').value.trim() || 'Ranger', $('start-port').value);
       if (act === 'settings') this.openModal('settings');
       if (act === 'controls') this.openModal('controls');
     });
@@ -907,7 +910,7 @@ export class UI {
       this.toast(`Sold the hold for ${v} pieces of eight.`, 'good');
     } else if (d.repair) {
       if (d.repair === 'hull') { const n = Math.ceil(g.playerHullMax() - s.ship.hull); s.gold -= n * 3; s.ship.hull = g.playerHullMax(); }
-      else { const n = Math.ceil(cls.sails - s.ship.sails); s.gold -= n * 2; s.ship.sails = cls.sails; }
+      else { const n = Math.ceil(cls.sails - s.ship.sails); s.gold -= n * 2; s.ship.sails = cls.sails; g.playerShip?.restoreAllMasts(); } // (new topmasts swayed up too)
       g.syncPlayerShipFromState();
       g.audio.ui('click');
     } else if (d.careen !== undefined) {

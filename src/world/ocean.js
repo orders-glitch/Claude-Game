@@ -34,6 +34,7 @@ export class Ocean {
       uWaveQ: { value: this.waves.map((w) => w.Q) },
       uCamPos: { value: new THREE.Vector3() },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+      uLights: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) }, // lanterns: xyz, w = strength
       uSunColor: { value: new THREE.Color(1, 1, 1) },
       uSunIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color(0.3, 0.35, 0.4) },
@@ -260,6 +261,7 @@ uniform float uRain;
 uniform sampler2D uGustTex;
 uniform vec2 uGustOrigin;
 uniform float uGustSize;
+uniform vec4 uLights[12];
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vHeight;
@@ -334,6 +336,20 @@ void main() {
   vec3 H = normalize(L + V);
   float spec = pow(max(dot(N, H), 0.0), 900.0) * 5.0 + pow(max(dot(N, H), 0.0), 120.0) * 0.07;
   col += uSunColor * uSunIntensity * spec * (1.0 - uRain * 0.7);
+
+  // lanterns at night: a warm pool on the water beneath each, and a long broken streak of glitter toward the eye
+  for (int i = 0; i < 12; i++) {
+    vec4 Lt = uLights[i];
+    if (Lt.w <= 0.0) continue;
+    vec3 toL = Lt.xyz - vWorld;
+    float dl = length(toL);
+    vec3 Ll = toL / dl;
+    vec3 Hl = normalize(Ll + V);
+    float nh = max(dot(N, Hl), 0.0);
+    float glint = pow(nh, 350.0) * 4.0 + pow(nh, 60.0) * 0.18 + pow(nh, 12.0) * 0.02;
+    float pool = 1.0 / (1.0 + dl * dl * 0.035);
+    col += vec3(1.0, 0.6, 0.26) * Lt.w * (glint * 2.2 / (1.0 + dl * 0.02) + pool * 0.25 * (0.4 + 0.6 * max(dot(N, Ll), 0.0)));
+  }
 
   // foam: wave crests + shoreline surf
   vec3 fA = texture2D(uFoamTex, uv * 0.045 + vec2(uTime * 0.01)).rgb;
