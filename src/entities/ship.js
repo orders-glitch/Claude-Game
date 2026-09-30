@@ -124,6 +124,7 @@ export class Ship {
     this.extraDrag = cargoLoad * 0.004 + (1 - hullF) * 0.02 + (this.aground > 0 ? 0.8 : 0) + (this.anchored ? 0.3 : 0);
     this.rudder = damp(this.rudder, this.rudderInput, 3, dt);
     sailStep(this, dt, w);
+    if (this.lashed) { this.speed = 0; this.sway = 0; this.yawRate = 0; this.heelTarget = 0; } // grappled alongside another ship
     // how well she's drawing, for the helm's instruments and the AI
     this.eff = clamp(this.drive / 0.9, 0, 1) * (this.backed ? 0 : 1);
     this.heading = wrapAngle(this.heading + this.yawRate * dt);

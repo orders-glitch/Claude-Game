@@ -173,6 +173,7 @@ export class PlayerWalker extends Walker {
     this.camPitch = clamp(this.camPitch + m.dy, -0.6, 1.1);
     if (m.wheel) this.camDist = clamp(this.camDist + m.wheel * 0.6, 2.5, 12);
 
+    if (this.flying) { this.moveAnim = 'leap'; this.animate(dt); return; } // on a boarding line: the swing carries us
     this.aiming = input.mouseDown(2) && (this.mode === 'ground' || this.mode === 'air');
     this.freeRun(dt, input);
 
@@ -640,12 +641,16 @@ export class NPC extends Walker {
       this.animate(dt);
       return;
     }
-    const player = g.walker;
+    // swinging across on a line, or struck and sitting out the rest of it
+    if (this.flying) { this.animState.speed = 0; this.animate(dt); return; }
+    if (this.surrendered) { this.animState.activity = 'sit'; this.physics(dt, 0, 0); this.animate(dt); return; }
+    // in a boarding fight each side goes for the nearest of the other; otherwise it's the player or no one
+    const player = this.side ? g.boarding?.foeFor(this) : g.walker;
     let wishX = 0, wishZ = 0, speed = 0;
     const toP = player && !player.dead ? player.pos.clone().sub(this.pos) : null;
     const dP = toP ? Math.hypot(toP.x, toP.z) : Infinity;
     if (this.lookout) this.watchRoofs(dt, player, dP);
-    const hostile = this.hostile || g.isWalkerHostile(this);
+    const hostile = this.side ? !!player : this.hostile || g.isWalkerHostile(this);
     this.animState.aim = false;
     if (this.spot && (this.fleeT > 0 || (hostile && this.kind !== 'civilian') || (this.kind === 'civilian' && g.combatNear && dP < 30))) this.leaveSpot();
 
@@ -727,7 +732,7 @@ export class NPC extends Walker {
         this.swung = true;
         if (player && !player.dead && this.pos.distanceTo(player.pos) < 2.6) {
           if (player.attackT >= 0.1 && player.attackT < 0.5 && Math.random() < 0.35) { g.audio.clang(this.pos); }
-          else { player.takeDamage(this.kind === 'soldier' || this.kind === 'guard' ? 14 : 10, this); g.audio.thud(player.pos); }
+          else { player.takeDamage(this.kind === 'soldier' || this.kind === 'guard' ? 14 : this.side ? (player.isPlayer ? 11 : 16) : 10, this); g.audio.thud(player.pos); }
         }
       }
       if (this.attackT >= 1) this.attackT = -1;

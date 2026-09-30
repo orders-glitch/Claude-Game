@@ -27,6 +27,7 @@ import { loadTownTextures } from './world/builder.js';
 import { sharedMaterials } from './world/builder.js';
 import { Ship, BALL_SPEED, GRAVITY } from './entities/ship.js';
 import { AMMO } from './game/data.js';
+import { Boarding } from './game/boarding.js';
 import { ShipAI } from './entities/shipAI.js';
 import { shipTime, shipMaterials } from './entities/shipModel.js';
 import { Effects } from './entities/effects.js';
@@ -653,7 +654,7 @@ export class Game {
 
     // ships
     for (const ship of this.ships) {
-      if (ship.ai && !ship.isPlayer) ship.ai.update(dt, this);
+      if (ship.ai && !ship.isPlayer && !ship.lashed) ship.ai.update(dt, this);
       ship.update(dt, this);
       if (ship.anchored && ship.isPlayer) { ship.speed = damp(ship.speed, 0, 1, dt); }
       ship.group.visible = ship.position.distanceTo(this.camera.position) < 4500;
@@ -1041,7 +1042,7 @@ export class Game {
       if (a.sunk) continue;
       for (let j = i + 1; j < L.length; j++) {
         const b = L[j];
-        if (b.sunk) continue;
+        if (b.sunk || (a.lashed && b.lashed)) continue; // grappled together: they lie against each other
         const dx = b.position.x - a.position.x, dz = b.position.z - a.position.z;
         const minD = (a.cls.length + b.cls.length) * 0.5;
         const d2 = dx * dx + dz * dz;
@@ -1163,25 +1164,19 @@ export class Game {
   }
 
   boardPrize(ship) {
-    const p = this.playerShip;
-    const s = this.state;
-    // melee resolution
-    let losses = 0, won = true;
-    if (!ship.struck) {
-      const ours = p.crew * (1 + s.renown * 0.002), theirs = ship.crew * (ship.role === 'hunter' || ship.role === 'navy' ? 1.3 : 0.9);
-      const ratio = ours / Math.max(1, theirs);
-      won = ratio > 0.9 || Math.random() < ratio * 0.7;
-      losses = Math.min(p.crew - 1, Math.round(ship.crew * rand(0.25, 0.5) / Math.max(0.6, ratio)));
-    } else losses = randInt(0, 2);
-    p.crew = Math.max(1, p.crew - losses);
-    this.audio.clang(p.position); this.later(200, () => this.audio.clang(p.position)); this.later(350, () => this.audio.musket(p.position));
-    if (!won) {
-      p.hull -= p.hullMax * 0.1;
-      this.ui.dialog('Boarding repulsed', `Your boarders are thrown back with ${losses} men lost. The ${ship.name} still fights!`, () => {});
-      ship.aggro.add(PLAYER_ID);
+    // a ship that fights on is carried by boarding, on her own deck; one that has struck simply surrenders
+    if (!ship.struck && !this.boarding) {
+      this.boarding = new Boarding(this, ship);
+      this.boarding.start();
       return;
     }
-    // plunder
+    this.plunderPrize(ship, randInt(0, 2));
+  }
+
+  // what's taken from a captured ship, and what's to be done with her
+  plunderPrize(ship, losses, after = () => {}) {
+    const p = this.playerShip;
+    const s = this.state;
     const gold = ship.gold + randInt(20, 80) * Math.ceil(ship.cls.guns / 4);
     s.gold += gold;
     s.stats.plunder += gold;
@@ -1202,9 +1197,9 @@ export class Game {
     const canTake = ship.cls.id !== p.cls.id;
     const text = `The ${ship.name} is yours! ${losses ? losses + ' of your men fell. ' : ''}You seize ${gold} pieces of eight${taken.length ? ' and ' + taken.join(', ') : ''}.${recruits > 0 ? ` ${recruits} of her crew sign your articles.` : ''}`;
     this.ui.choice('Prize Taken', text, [
-      canTake ? { label: `Take her as flagship (${ship.cls.name})`, act: () => this.takeCommand(ship) } : null,
-      { label: 'Set her adrift', act: () => { ship.ai.mode = 'flee'; ship.ai.target = p; ship.sailTarget = 1; ship.struck = true; ship.despawnT = 60; } },
-      { label: 'Scuttle her', act: () => { ship.lastHitBy = p; ship.startSinking(this); } },
+      canTake ? { label: `Take her as flagship (${ship.cls.name})`, act: () => { after(); this.takeCommand(ship); } } : null,
+      { label: 'Set her adrift', act: () => { after(); ship.ai.mode = 'flee'; ship.ai.target = p; ship.sailTarget = 1; ship.struck = true; ship.despawnT = 60; } },
+      { label: 'Scuttle her', act: () => { after(); ship.lastHitBy = p; ship.startSinking(this); } },
     ].filter(Boolean));
   }
 
@@ -1390,6 +1385,7 @@ export class Game {
   updateFoot(dt) {
     const w = this.walker;
     if (!w) return;
+    if (this.boarding) this.boarding.update(dt);
     w.update(dt, this.input, this.camera);
     w.updateCamera(this.camera, dt);
     this.camera.fov = damp(this.camera.fov, w.aiming ? this.baseFov * 0.75 : this.baseFov, 8, dt);
@@ -1411,7 +1407,7 @@ export class Game {
 
   footContext() {
     const w = this.walker;
-    if (w.dead || this.transitioning) return null;
+    if (w.dead || this.transitioning || this.boarding) return null;
     // doors
     for (const t of this.townList) {
       if (t.center.distanceTo(w.pos) > t.R * 2) continue;
@@ -1542,6 +1538,7 @@ export class Game {
 
   groundAt(x, z) {
     let h = this.terrain.height(x, z);
+    if (this.boarding) { const d = this.boarding.deckAt(x, z); if (d !== null) h = Math.max(h, d); }
     for (const t of this.townList) {
       if (Math.abs(x - t.coast.x) > 400 || Math.abs(z - t.coast.z) > 400) continue;
       for (const p of t.platforms) {
@@ -1557,6 +1554,7 @@ export class Game {
     const out = [];
     for (const t of this.townList) if (Math.abs(x - t.center.x) < t.R * 2 && Math.abs(z - t.center.z) < t.R * 2) out.push(t.colliders);
     if (Math.abs(x - this.salvage.center.x) < 120 && Math.abs(z - this.salvage.center.z) < 120) out.push(this.salvage.colliders);
+    if (this.boarding) out.push(this.boarding.colliders);
     return out;
   }
 
@@ -1580,6 +1578,7 @@ export class Game {
     };
     for (const t of this.townList) if (Math.abs(x - t.center.x) < t.R * 2 && Math.abs(z - t.center.z) < t.R * 2) add(t);
     if (Math.abs(x - this.salvage.center.x) < 120 && Math.abs(z - this.salvage.center.z) < 120) add(this.salvage);
+    if (this.boarding) for (const c of this.boarding.colliders) out.push(c);
     return out;
   }
 
@@ -1656,6 +1655,7 @@ export class Game {
 
   // NPC population around towns
   manageNPCs() {
+    if (this.boarding) return; // the fight on deck keeps its own people
     const focus = this.mode === 'foot' && this.walker ? this.walker.pos : null;
     if (!focus) { if (this.npcs.length && !this.keepNPCs) this.despawnNPCs(); return; }
     const town = this.townList.find((t) => t.center.distanceTo(focus) < t.R * 2.2);
@@ -1793,7 +1793,7 @@ export class Game {
     const fwd = new THREE.Vector3(-Math.sin(w.yaw), 0, -Math.cos(w.yaw));
     let hit = false;
     for (const n of this.npcs) {
-      if (n.dead) continue;
+      if (n.dead || n.side === 'ally' || n.surrendered) continue;
       const to = n.pos.clone().sub(w.pos); to.y = 0;
       const d = to.length();
       if (d > 2.6) continue;
@@ -1811,7 +1811,7 @@ export class Game {
     const dir = this.camera.getWorldDirection(new THREE.Vector3());
     let best = null, bestAng = 0.07;
     for (const n of this.npcs) {
-      if (n.dead) continue;
+      if (n.dead || n.side === 'ally' || n.surrendered) continue;
       const c = n.pos.clone().add(new THREE.Vector3(0, 1.2, 0));
       const to = c.sub(origin);
       const d = to.length();
@@ -1852,6 +1852,7 @@ export class Game {
 
   onPlayerDeath() {
     const s = this.state;
+    if (this.boarding) { const b = this.boarding; this.later(1400, () => { b.cleanup(); b.enemy.aggro?.add(PLAYER_ID); }); }
     this.later(1500, () => {
       this.ui.wasted('Left for Dead', 'You wake in a tavern back room, lighter in the purse.');
       this.transitioning = false;
