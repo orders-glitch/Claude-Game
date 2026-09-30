@@ -46,7 +46,7 @@ export class Ocean {
       uDeep: { value: new THREE.Color('#062b45') },
       uMid: { value: new THREE.Color('#0b5d78') },
       uShallow: { value: new THREE.Color('#2fc4c0') },
-      uSandy: { value: new THREE.Color('#9fe0cf') },
+      uSandy: { value: new THREE.Color('#58d6c8') },
       uRain: { value: 0 },
     };
     const N = quality === 'low' ? 256 : quality === 'medium' ? 384 : 512;
@@ -99,7 +99,7 @@ export class Ocean {
     }
     // same shallow-water damping as the shader
     const g = this.terrain ? this.terrain.quickHeight(x, z) : -40;
-    const t0 = Math.min(1, Math.max(0, (g + 5) / 5.5)), k = 1 - t0 * t0 * (3 - 2 * t0);
+    const t0 = Math.min(1, Math.max(0, (g + 2.2) / 2.8)), k = 1 - t0 * t0 * (3 - 2 * t0);
     out.x = dx * k; out.y = dy * k; out.z = dz * k;
     return out;
   }
@@ -181,7 +181,7 @@ void main() {
   }
   // waves die away in the shallows so crests never stand up through the beach
   float ground = texture2D(uHeightMap, (wp.xz + uWorldHalf) / (uWorldHalf * 2.0)).r;
-  fade *= 1.0 - smoothstep(-5.0, 0.5, ground);
+  fade *= 1.0 - smoothstep(-2.2, 0.6, ground);
   disp *= fade;
   nrm = normalize(mix(vec3(0.0, 1.0, 0.0), nrm, fade));
   wp.xyz += disp;
@@ -256,7 +256,7 @@ void main() {
   // water body colour
   vec3 body = mix(uDeep, uMid, midT * 0.8 + 0.2);
   body = mix(body, uShallow, shallow);
-  body = mix(body, uSandy, veryShallow * 0.7);
+  body = mix(body, uSandy, veryShallow * 0.55);
   // subsurface scattering through wave crests
   float sss = pow(max(dot(V, -L), 0.0), 3.0) * max(vHeight / max(uSea, 0.3), 0.0) * 0.25;
   sss += pow(max(dot(N, V), 0.0), 2.0) * 0.04;

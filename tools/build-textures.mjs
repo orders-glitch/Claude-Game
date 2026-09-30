@@ -19,6 +19,12 @@ const TEXTURES = {
   forest_leaves_02: ['terrain', 1024],
   coast_land_rocks_01: ['terrain', 1024],
   coral_gravel: ['terrain', 1024],
+  // town building materials (also get a three.js-ready AO/roughness/metal map, <id>_arm.webp)
+  clay_plaster: ['town', 1024],
+  brown_planks_03: ['town', 1024],
+  brown_planks_09: ['town', 1024],
+  clay_roof_tiles_02: ['town', 1024],
+  coral_fort_wall_01: ['town', 1024],
 };
 const only = process.argv.slice(2);
 
@@ -48,8 +54,9 @@ for (const [id, [group, size]] of Object.entries(TEXTURES)) {
     fs.mkdirSync(dir, { recursive: true });
     await rgbFile(curl(get('Diffuse')), size, path.join(dir, `${id}_d.webp`));
     await rgbFile(curl(get('nor_gl')), size, path.join(dir, `${id}_n.webp`));
-    await maskFile(opt('Rough'), opt('Displacement'), opt('AO'), size, path.join(dir, `${id}_m.webp`));
+    if (group !== 'town') await maskFile(opt('Rough'), opt('Displacement'), opt('AO'), size, path.join(dir, `${id}_m.webp`));
+    if (group === 'town' && get('arm')) await rgbFile(curl(get('arm')), size, path.join(dir, `${id}_arm.webp`));
     const kb = (f) => Math.round(fs.statSync(path.join(dir, `${id}_${f}.webp`)).size / 1024);
-    console.log(`${id}: ${kb('d')} + ${kb('n')} + ${kb('m')} KB`);
+    console.log(`${id}: ${kb('d')} + ${kb('n')} KB`);
   } catch (e) { console.log(id, 'FAILED', e.message); }
 }
