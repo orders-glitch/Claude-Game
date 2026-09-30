@@ -10,8 +10,9 @@ import { shipTime } from './shipModel.js';
 export const SHIP_MODELS = {
   sloop: { file: 'sloop.glb', bow: -1, deck: 1.2, draft: 1.6 },
   pinnace: { file: 'pinnace.glb', bow: -1, deck: 2.2, draft: 2.4 },
+  galleon: { file: 'galleon.glb', bow: -1, deck: 3.2, draft: 3.3 },
 };
-export const CLASS_MODEL = { sloop: 'sloop', brigantine: 'pinnace', fluyt: 'pinnace', frigate: 'pinnace' };
+export const CLASS_MODEL = { sloop: 'sloop', brigantine: 'pinnace', fluyt: 'pinnace', frigate: 'pinnace', galleon: 'galleon', manowar: 'galleon' };
 
 // quantized glTF attributes can't hold baked transforms: convert to float
 function toFloat(geo) {
