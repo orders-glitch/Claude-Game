@@ -63,6 +63,7 @@ export function dress(K, id) {
     if (!free(p, 0.3)) return false;
     const sc = 0.9 + rnd() * 0.5;
     B.add('wall', lathe('jar'), T(p.a, ground(p), p.b, rnd() * 6, sc, sc, sc), pick(['#a85a3a', '#b8683f', '#94533a'], rnd));
+    t.addCollider(p.a, p.b, 0.36 * sc, 0.36 * sc, 0, 1.0 * sc);
     if (rnd() < 0.4) { const q = P(x + 0.75, 0.4); if (free(q, 0.25)) B.add('wall', lathe('jar'), T(q.a, ground(q), q.b, rnd() * 6, sc * 0.7, sc * 0.7, sc * 0.7), '#a85a3a'); }
     t.reserveRect(p.a, p.b, 0.4, 0.4);
     return true;
@@ -103,9 +104,17 @@ export function dress(K, id) {
     const p = P(x, 0.55);
     if (!free(p, 0.5)) return false;
     const y = ground(p), r = rnd();
-    if (r < 0.35) { t.prop('wooden_crate_01', p.a, y, p.b, out + (rnd() - 0.5) * 0.3, 1.2); if (rnd() < 0.5) t.prop('wooden_crate_02', p.a, y + 0.62, p.b, out + rnd() * 0.5, 1.0); }
+    if (r < 0.35) {
+      const two = rnd() < 0.5;
+      t.prop('wooden_crate_01', p.a, y, p.b, out, 1.2);
+      if (two) t.prop('wooden_crate_02', p.a, y + 0.62, p.b, out + (rnd() - 0.5) * 0.3, 1.0);
+      t.addCollider(p.a, p.b, 0.38, 0.38, out, two ? 1.15 : 0.62); // something to vault onto
+    }
     else if (r < 0.6) for (let k = 0; k < 3; k++) B.add('cloth', new THREE.SphereGeometry(0.3, 7, 5), T(p.a + (rnd() - 0.5) * 0.5, y + 0.2 + (k === 2 ? 0.3 : 0), p.b + (rnd() - 0.5) * 0.5, rnd() * 3, 1.1, 0.7, 1.4), pick(['#c8b58a', '#b8a47a', '#d6c9a8'], rnd));
-    else if (r < 0.8) { t.barrel(B, p.a, y, p.b); if (rnd() < 0.5) { const q = P(x + 0.95, 0.55); if (free(q, 0.4)) t.barrel(B, q.a, y, q.b); } }
+    else if (r < 0.8) {
+      t.barrel(B, p.a, y, p.b); t.addCollider(p.a, p.b, 0.4, 0.4, 0, 1.08);
+      if (rnd() < 0.5) { const q = P(x + 0.95, 0.55); if (free(q, 0.4)) { t.barrel(B, q.a, y, q.b); t.addCollider(q.a, q.b, 0.4, 0.4, 0, 1.08); } }
+    }
     else {
       const bp = P(x, 0.15);
       B.cyl('wood', 0.02, 0.02, 1.3, 4, T(bp.a, y + 0.7, bp.b, out, 1, 1, 1, -0.18), '#8a6a44');

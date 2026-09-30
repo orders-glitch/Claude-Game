@@ -4,9 +4,11 @@ import { LOOKS } from './character.js';
 import { CharacterRig } from './rig.js';
 import { modelLibrary, GltfRig } from './modelLibrary.js';
 import { humans } from './humans.js';
-import { clamp, damp, dampAngle, wrapAngle, rand, pick } from '../core/noise.js';
+import { clamp, damp, dampAngle, wrapAngle, rand, pick, smoothstep as smooth } from '../core/noise.js';
+import { colliderSurface } from '../world/surface.js';
 
 const GRAV = 22;
+const HANG = 2.05; // feet below the hands when hanging from a ledge
 // if a role has no artist model, try a close substitute before falling back to the procedural rig
 const ROLE_FALLBACK = { pirate_female: 'pirate', soldier_pirate: 'pirate', sailor: 'pirate' };
 function modelRole(role) {
@@ -135,6 +137,13 @@ export class PlayerWalker extends Walker {
     this.comboQueued = false;
     this.aiming = false;
     this.swingHit = false;
+    // free running
+    this.mode = 'ground'; // ground | air | climb | hang | mantle | roll | land | slide
+    this.sprintT = 0;
+    this.fallTop = this.pos.y;
+    this.moveAnim = null; this.moveT = 0; this.moveRate = 1;
+    this.wall = null;
+    this.wish = { x: 0, z: 0, len: 0 };
   }
 
   update(dt, input, cam) {
@@ -145,33 +154,11 @@ export class PlayerWalker extends Walker {
     this.camPitch = clamp(this.camPitch + m.dy, -0.6, 1.1);
     if (m.wheel) this.camDist = clamp(this.camDist + m.wheel * 0.6, 2.5, 12);
 
-    let fx = 0, fz = 0;
-    if (input.down('KeyW')) fz -= 1;
-    if (input.down('KeyS')) fz += 1;
-    if (input.down('KeyA')) fx -= 1;
-    if (input.down('KeyD')) fx += 1;
-    const len = Math.hypot(fx, fz);
-    const run = input.down('ShiftLeft') || input.down('ShiftRight');
-    this.aiming = input.mouseDown(2);
-    let speed = run ? 6.2 : 2.6;
-    if (this.aiming) speed = 2.0;
-    if (this.attackT >= 0) speed *= 0.4;
-    let wx = 0, wz = 0;
-    if (len > 0) {
-      fx /= len; fz /= len;
-      const c = Math.cos(this.camYaw), s = Math.sin(this.camYaw);
-      wx = fx * c + fz * s;
-      wz = -fx * s + fz * c;
-      if (!this.aiming) this.yaw = dampAngle(this.yaw, Math.atan2(-wx, -wz), 12, dt);
-    }
-    if (this.aiming) this.yaw = dampAngle(this.yaw, this.camYaw, 20, dt);
-    // shallow water slows
-    if (this.pos.y < 0.1) speed *= 0.55;
-    this.physics(dt, wx * speed, wz * speed);
-    if (input.hit('Space') && this.onGround) { this.vy = 7; this.onGround = false; }
+    this.aiming = input.mouseDown(2) && (this.mode === 'ground' || this.mode === 'air');
+    this.freeRun(dt, input);
 
     // cutlass
-    if (input.mouseHit(0) && !this.aiming) {
+    if (input.mouseHit(0) && !this.aiming && this.mode === 'ground') {
       if (this.attackT < 0) this.startSwing();
       else if (this.attackT > 0.45) this.comboQueued = true;
     }
@@ -202,6 +189,307 @@ export class PlayerWalker extends Walker {
     this.regenDelay -= dt;
     if (this.regenDelay <= 0 && this.health < this.maxHealth) this.health = Math.min(this.maxHealth, this.health + dt * 4);
     this.animate(dt);
+  }
+
+  // ---------------------------------------------------------------- free running
+  // Walk, run and (holding Shift a moment) sprint; Space jumps (a long leap at speed), climbs a wall you are
+  // facing, or vaults onto anything up to chest height; you catch ledges you jump at, climb hand over hand
+  // (W/S/A/D), hang and shimmy along the eaves, pull yourself up onto the roofs, walk and run across them and
+  // drop off (C lets go). Falls end in a roll when you're moving, a hard landing when you're not, and hurt
+  // past a storey or two.
+  freeRun(dt, input) {
+    const g = this.game;
+    let fx = 0, fz = 0;
+    if (input.down('KeyW')) fz -= 1;
+    if (input.down('KeyS')) fz += 1;
+    if (input.down('KeyA')) fx -= 1;
+    if (input.down('KeyD')) fx += 1;
+    const len = Math.hypot(fx, fz);
+    const shift = input.down('ShiftLeft') || input.down('ShiftRight');
+    let wx = 0, wz = 0;
+    if (len > 0) {
+      const c = Math.cos(this.camYaw), s = Math.sin(this.camYaw);
+      wx = (fx / len) * c + (fz / len) * s;
+      wz = -(fx / len) * s + (fz / len) * c;
+    }
+    this.wish = { x: wx, z: wz, len: Math.min(1, len) };
+    this.moveAnim = null;
+    this.moveBlend = 14;
+    switch (this.mode) {
+      case 'climb': return this.climbStep(dt, input, fx, fz);
+      case 'hang': return this.hangStep(dt, input, fx, fz);
+      case 'mantle': return this.mantleStep(dt);
+      default: break;
+    }
+    // ---- on foot or in the air
+    const moving = len > 0;
+    this.sprintT = shift && moving && this.mode !== 'air' ? this.sprintT + dt : Math.max(0, this.sprintT - dt * 3);
+    let speed = shift ? 6.2 + 2.4 * smooth(0.25, 1.1, this.sprintT) : 2.6; // a walk, a run, then a flat-out sprint
+    if (this.aiming) speed = 2.0;
+    if (this.attackT >= 0) speed *= 0.4;
+    if (this.pos.y < 0.1 && this.mode === 'ground') speed *= 0.55; // wading
+    if (this.mode === 'roll' || this.mode === 'land' || this.mode === 'slide') return this.recoverStep(dt, speed);
+    if (moving && !this.aiming) this.yaw = dampAngle(this.yaw, Math.atan2(-wx, -wz), this.mode === 'air' ? 3 : 12, dt);
+    if (this.aiming) this.yaw = dampAngle(this.yaw, this.camYaw, 20, dt);
+    const air = this.mode === 'air';
+    this.move(dt, wx * speed, wz * speed, air ? 1.6 : 12);
+
+    const hs = Math.hypot(this.vel.x, this.vel.z);
+    const towardWall = this.contactToward();
+    if (this.mode === 'ground') {
+      // Space: climb or vault what's in front, or jump; sprinting into a wall runs straight up it
+      if (towardWall && (input.hit('Space') || (shift && this.sprintT > 0.35 && towardWall.dot > 0.8))) { if (this.startWall(towardWall, false)) return; }
+      if (input.hit('Space')) {
+        if (hs > 4.8) {
+          // a running leap: long and flat, arms flung forward
+          const f = Math.max(hs, 8.2) / hs;
+          this.vel.x *= f; this.vel.z *= f;
+          this.vy = 7.0; this.leaping = true;
+          this.moveT = 0; this.leapT = 0;
+        } else { this.vy = 6.2; this.leaping = false; this.leapT = 0; }
+        this.mode = 'air'; this.onGround = false; this.fallTop = this.pos.y;
+        g.audio.thud(this.pos);
+        return;
+      }
+      // sliding under momentum
+      if (input.hit('KeyC') && hs > 6) { this.mode = 'slide'; this.slideT = 0; this.slideV = hs; return; }
+    } else {
+      // in the air: catch a ledge you're moving into, or grab the wall and start climbing
+      this.leapT = (this.leapT || 0) + dt;
+      if (this.leaping) { this.moveAnim = this.leapT < 0.3 ? 'leapStart' : 'leap'; this.moveT = this.leapT / 0.3; }
+      else if (this.vy > 0 && this.leapT < 0.25) { this.moveAnim = 'jumpStart'; this.moveT = (this.leapT / 0.25) * 0.6; }
+      else if (this.fallTop - this.pos.y > 0.7 || this.leapT > 0.2) this.moveAnim = 'fall'; // (not for a step down)
+      if (towardWall && towardWall.dot > 0.3 && this.leapT > 0.12) { if (this.startWall(towardWall, true)) return; }
+    }
+  }
+
+  // velocity toward the wish, then collide and settle on whatever is underfoot (ground, roofs, walls, crates)
+  move(dt, wishX, wishZ, accel) {
+    const g = this.game;
+    const k = 1 - Math.exp(-accel * dt);
+    this.vel.x += (wishX - this.vel.x) * k;
+    this.vel.z += (wishZ - this.vel.z) * k;
+    let nx = this.pos.x + this.vel.x * dt, nz = this.pos.z + this.vel.z * dt;
+    // don't walk off into deep water (unless from a height, when you dive in)
+    if (this.mode === 'ground' && g.surfaceAt(nx, nz, this.pos.y) < -0.9) {
+      const gx = g.surfaceAt(nx, this.pos.z, this.pos.y), gz = g.surfaceAt(this.pos.x, nz, this.pos.y);
+      if (gx >= -0.9) nz = this.pos.z; else if (gz >= -0.9) nx = this.pos.x; else { nx = this.pos.x; nz = this.pos.z; }
+      this.vel.x = this.vel.z = 0;
+    }
+    // steep natural ground blocks as before
+    const t0 = g.groundAt(this.pos.x, this.pos.z), t1 = g.groundAt(nx, nz), dist = Math.hypot(nx - this.pos.x, nz - this.pos.z);
+    if (this.mode === 'ground' && dist > 1e-4 && (t1 - t0) / dist > 1.6 && t1 > this.pos.y + 0.6) { nx = this.pos.x; nz = this.pos.z; }
+    this.pos.x = nx; this.pos.z = nz;
+    g.collideWalker(this);
+    const under = g.surfaceAt(this.pos.x, this.pos.z, this.pos.y, this.mode === 'ground' ? 0.45 : 0.05);
+    this.vy -= GRAV * dt;
+    this.pos.y += this.vy * dt;
+    if (this.pos.y <= under) {
+      this.pos.y = under;
+      if (this.mode === 'air') this.landed(under);
+      this.vy = 0;
+      this.onGround = true;
+    } else if (this.mode === 'ground' && this.vy <= 0 && this.pos.y - under < 0.4) {
+      // follow the ground down slopes, steps and roof pitches without taking off
+      this.pos.y = under; this.vy = 0; this.onGround = true;
+    } else if (this.mode === 'ground') {
+      this.mode = 'air'; this.onGround = false; this.fallTop = this.pos.y; this.leaping = false; this.leapT = 1;
+    }
+    if (this.mode === 'air') this.fallTop = Math.max(this.fallTop, this.pos.y);
+  }
+
+  landed(y) {
+    const g = this.game;
+    const h = this.fallTop - y;
+    const hs = Math.hypot(this.vel.x, this.vel.z);
+    this.leaping = false;
+    if (h > 9) this.takeDamage(Math.round((h - 9) * 12), null); // a storey or two is nothing to a topman; three hurts
+    if (this.dead) return;
+    if (h > 2.6 && hs > 2.5) { this.mode = 'roll'; this.recT = 0; this.recDur = 0.75; this.recAnim = 'roll'; g.audio.thud(this.pos); }
+    else if (h > 1.6) { this.mode = 'land'; this.recT = 0; this.recDur = h > 3.5 ? 0.7 : 0.4; this.recAnim = this.wasLeap ? 'leapLand' : 'land'; g.audio.thud(this.pos); if (h > 3.5) g.audio.grunt(this.pos); }
+    else this.mode = 'ground';
+    if (this.mode !== 'ground' && this.mode !== 'roll') { this.vel.x *= 0.3; this.vel.z *= 0.3; }
+  }
+
+  // rolls, hard landings and slides: carried by momentum, a one-shot animation, then back on your feet
+  recoverStep(dt, speed) {
+    this.recT += dt;
+    let wish = 0;
+    if (this.mode === 'roll') { wish = Math.max(4.5, Math.hypot(this.vel.x, this.vel.z)); this.moveAnim = 'roll'; this.moveT = this.recT / this.recDur; }
+    else if (this.mode === 'land') { this.moveAnim = this.recAnim; this.moveT = this.recT / this.recDur; }
+    else {
+      // a slide: start, glide, get up
+      this.slideV = Math.max(0, this.slideV - dt * 7);
+      wish = this.slideV;
+      this.slideT += dt;
+      this.moveAnim = this.slideT < 0.3 ? 'slideStart' : this.slideT < 0.75 ? 'slide' : 'slideEnd';
+      this.moveT = this.slideT < 0.3 ? this.slideT / 0.3 : (this.slideT - 0.75) / 0.4;
+      if (this.slideT > 1.15) this.mode = 'ground';
+    }
+    const f = { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) };
+    this.move(dt, f.x * wish, f.z * wish, 8);
+    if (this.mode !== 'slide' && this.recT >= this.recDur) this.mode = 'ground';
+    void speed;
+  }
+
+  // the wall the player is pressing into this frame: its collider, which face, and how squarely we face it
+  contactToward() {
+    const ct = this.contact;
+    if (!ct || this.wish.len < 0.1) return null;
+    const c = ct.c;
+    const n = ct.axis === 'x' ? { x: ct.sign * c.cos, z: -ct.sign * c.sin } : { x: ct.sign * c.sin, z: ct.sign * c.cos };
+    const dot = -(n.x * this.wish.x + n.z * this.wish.z);
+    if (dot < 0.3) return null;
+    return { ...ct, n, dot };
+  }
+
+  // the wall frame: its outward normal and tangent, the half-length of the face, and our place along it
+  wallFrame(ct) {
+    const c = ct.c;
+    const X = { x: c.cos, z: -c.sin }, Z = { x: c.sin, z: c.cos }; // the collider's local axes in the world
+    const dx = this.pos.x - c.x, dz = this.pos.z - c.z;
+    const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
+    return ct.axis === 'x'
+      ? { c, axis: 'x', sign: ct.sign, n: { x: ct.sign * X.x, z: ct.sign * X.z }, t: Z, along: lz, half: c.hd }
+      : { c, axis: 'z', sign: ct.sign, n: { x: ct.sign * Z.x, z: ct.sign * Z.z }, t: X, along: lx, half: c.hw };
+  }
+
+  // the height of the top of the wall at a point along it (a gable end rises to its ridge; a parapet stands
+  // above an azotea's floor)
+  wallTop(W, along) {
+    const c = W.c;
+    const lx = W.axis === 'x' ? W.sign * (c.hw - 0.15) : along, lz = W.axis === 'x' ? along : W.sign * (c.hd - 0.15);
+    const R = c.roof;
+    return colliderSurface(c, lx, lz) + (R && R.flat ? R.lip : 0);
+  }
+
+  // how far the eaves stand out from this face (hands go to the edge of the overhang, not the wall)
+  eaveOut(W) {
+    const R = W.c.roof;
+    if (!R || R.flat) return 0;
+    return Math.max(0, W.axis === 'x' ? R.X - W.c.hw : R.Z - W.c.hd);
+  }
+
+  // place the body against the wall at (along, feet height y), `out` metres further out from it
+  pinToWall(W, along, y, out = 0) {
+    const c = W.c;
+    const lx = W.axis === 'x' ? W.sign * (c.hw + 0.12 + out) : along, lz = W.axis === 'x' ? along : W.sign * (c.hd + 0.12 + out);
+    this.pos.set(c.x + lx * c.cos + lz * c.sin, y, c.z - lx * c.sin + lz * c.cos);
+    this.yaw = Math.atan2(W.n.x, W.n.z);
+    this.vel.set(0, 0, 0); this.vy = 0;
+  }
+
+  // start on a wall: vault or mantle what's low, catch the ledge of what's in reach, or climb what's tall
+  startWall(ct, fromAir) {
+    const W = this.wallFrame(ct);
+    if (Math.abs(W.along) > W.half - 0.2) return false; // a corner: nothing to hold
+    const top = this.wallTop(W, W.along);
+    const rel = top - this.pos.y;
+    if (rel < 0.4) return false;
+    this.wall = W;
+    this.leaping = false;
+    if (rel <= 1.35) return this.startMantle(W, rel <= 1.0 ? 0.45 : 0.6);
+    if (rel <= 2.35) {
+      // hands on the ledge
+      this.pinToWall(W, W.along, top - HANG, this.eaveOut(W));
+      this.mode = 'hang';
+      this.game.audio.thud(this.pos);
+      return true;
+    }
+    if (fromAir && this.vy < -9) return false; // falling too fast to hold on
+    this.pinToWall(W, W.along, this.pos.y + (fromAir ? 0 : 0.35));
+    this.mode = 'climb'; this.climbPhase = 0;
+    return true;
+  }
+
+  climbStep(dt, input, fx, fz) {
+    const W = this.wall;
+    const up = -fz, side = fx; // W climbs, S climbs down, A/D move along the wall (A to our left)
+    const fast = input.down('ShiftLeft') || input.down('ShiftRight');
+    const vUp = up * (fast ? 2.8 : 2.0), vSide = side * 1.1;
+    // along the face, our left is the tangent's negative when the tangent runs to our right
+    const tDot = Math.cos(this.yaw) * W.t.x - Math.sin(this.yaw) * W.t.z; // our right hand along the face's axis
+    W.along = Math.max(-W.half + 0.3, Math.min(W.half - 0.3, W.along + tDot * vSide * dt));
+    let y = this.pos.y + vUp * dt;
+    const top = this.wallTop(W, W.along);
+    const floor = this.game.surfaceAt(this.pos.x + W.n.x * 0.4, this.pos.z + W.n.z * 0.4, this.pos.y + 0.2, 0.2);
+    if (y + HANG >= top) { y = top - HANG; this.mode = 'hang'; } // reached the eaves
+    if (y <= floor + 0.05 && up < 0) { this.pos.y = floor; this.mode = 'ground'; this.onGround = true; this.pinToWall(W, W.along, floor); this.backOff(W, 0.3); return; }
+    const yy = Math.max(y, floor);
+    this.pinToWall(W, W.along, yy, this.eaveOut(W) * smooth(top - HANG - 1.2, top - HANG, yy));
+    const moving = Math.abs(vUp) + Math.abs(vSide) > 0.01;
+    this.moveAnim = 'climb';
+    this.moveRate = moving ? (Math.abs(vUp) > 0.01 ? Math.abs(vUp) / 1.6 : 0.8) * (vUp < 0 ? -1 : 1) : 0;
+    if (input.hit('KeyC')) return this.letGo(W);
+    if (input.hit('Space')) { this.backOff(W, 0.35); this.vel.set(W.n.x * 4, 0, W.n.z * 4); this.vy = 5.5; this.mode = 'air'; this.fallTop = this.pos.y; this.leapT = 0; this.leaping = false; this.yaw += Math.PI; } // kick off the wall
+  }
+
+  hangStep(dt, input, fx, fz) {
+    const W = this.wall;
+    const tDot = Math.cos(this.yaw) * W.t.x - Math.sin(this.yaw) * W.t.z;
+    W.along = Math.max(-W.half + 0.35, Math.min(W.half - 0.35, W.along + tDot * fx * 1.1 * dt));
+    const top = this.wallTop(W, W.along);
+    this.pinToWall(W, W.along, top - HANG, this.eaveOut(W));
+    this.moveAnim = fx < 0 ? 'shimmyL' : fx > 0 ? 'shimmyR' : 'hang';
+    this.moveRate = 1;
+    if (fz < 0 || input.hit('Space')) return this.startMantle(W, 0.95);
+    if (fz > 0) { this.mode = 'climb'; this.pinToWall(W, W.along, this.pos.y - 0.1); return; }
+    if (input.hit('KeyC')) this.letGo(W);
+  }
+
+  // pull up over the edge, carried by the clip's own root motion scaled to the height of the wall
+  startMantle(W, dur) {
+    const top = this.wallTop(W, W.along);
+    this.wall = W;
+    this.mant = {
+      t: 0, dur, x0: this.pos.x, z0: this.pos.z, y0: this.pos.y,
+      // end a little way in over the top, standing on whatever is there
+      x1: this.pos.x - W.n.x * (0.75 + this.eaveOut(W)), z1: this.pos.z - W.n.z * (0.75 + this.eaveOut(W)),
+    };
+    this.mant.y1 = Math.max(top - (W.c.roof?.flat ? W.c.roof.lip : 0), this.game.surfaceAt(this.mant.x1, this.mant.z1, top + 0.1, 0.3));
+    this.mode = 'mantle';
+    this.game.audio.thud(this.pos);
+    return true;
+  }
+
+  mantleStep(dt) {
+    const M = this.mant;
+    M.t += dt / M.dur;
+    const t = Math.min(1, M.t);
+    const rm = this.rig.entry?.clips?.mantle?.userData?.rootMotion;
+    let fu = t, ff = smooth(0.45, 1, t);
+    if (rm) {
+      const i = Math.min(rm.length - 2, Math.floor(t * (rm.length - 1))), f = t * (rm.length - 1) - i, end = rm[rm.length - 1];
+      fu = (rm[i][2] + (rm[i + 1][2] - rm[i][2]) * f) / end[2];
+      ff = (rm[i][1] + (rm[i + 1][1] - rm[i][1]) * f) / end[1];
+    }
+    this.pos.set(M.x0 + (M.x1 - M.x0) * ff, M.y0 + (M.y1 - M.y0) * fu, M.z0 + (M.z1 - M.z0) * ff);
+    this.vel.set(0, 0, 0); this.vy = 0;
+    this.moveAnim = 'mantle'; this.moveT = t; this.moveBlend = 20;
+    if (M.t >= 1) { this.mode = 'ground'; this.onGround = true; this.fallTop = this.pos.y; }
+  }
+
+  backOff(W, d) { this.pos.x += W.n.x * d; this.pos.z += W.n.z * d; }
+
+  letGo(W) {
+    this.backOff(W, 0.25);
+    this.mode = 'air'; this.onGround = false; this.vy = 0; this.leapT = 1; this.leaping = false;
+    this.fallTop = this.pos.y;
+  }
+
+  animate(dt) {
+    const st = this.animState;
+    st.move = this.dead ? null : this.moveAnim;
+    st.moveT = this.moveT;
+    st.moveRate = this.moveRate;
+    st.moveBlend = this.moveBlend;
+    this.wasLeap = this.leaping || this.moveAnim === 'leap';
+    super.animate(dt);
+  }
+
+  dispose() {
+    if (this.baseFov !== undefined) { this.game.camera.fov = this.baseFov; this.game.camera.updateProjectionMatrix(); }
+    super.dispose();
   }
 
   startSwing() {
@@ -242,6 +530,10 @@ export class PlayerWalker extends Walker {
     target.y = wy;
     camera.position.copy(target);
     camera.lookAt(head.x - back.x * 4, head.y - back.y * 4 + 0.2, head.z - back.z * 4);
+    // the view opens a little at a flat-out sprint
+    if (this.baseFov === undefined) this.baseFov = camera.fov;
+    const fov = this.baseFov + 7 * smooth(0.4, 1.2, this.sprintT || 0);
+    if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = damp(camera.fov, fov, 4, dt); camera.updateProjectionMatrix(); }
   }
 }
 

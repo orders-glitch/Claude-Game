@@ -2,6 +2,7 @@
 // Characters (heads), Modular Outfits, hairstyles and the Universal Animation Library — all on one
 // 65-bone skeleton. Outfits are tinted per role and period hats are fitted to the head bone.
 import * as THREE from 'three';
+import { buildParkourClips } from './parkourClips.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { GltfRig } from './modelLibrary.js';
@@ -15,7 +16,7 @@ const FILES = {
   hair_beard: 'hair_beard.glb', hair_simpleparted: 'hair_simpleparted.glb', hair_long: 'hair_long.glb',
   hair_buns: 'hair_buns.glb', hair_buzzed: 'hair_buzzed.glb', hair_buzzedfemale: 'hair_buzzedfemale.glb',
   eyebrows_regular: 'eyebrows_regular.glb', eyebrows_female: 'eyebrows_female.glb',
-  anims: 'anims.glb',
+  anims: 'anims.glb', anims2: 'anims2.glb',
 };
 
 // ---------------------------------------------------------------- looks per role
@@ -245,6 +246,21 @@ class Humans {
           for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; }
         }
       }
+    }
+    // free running: sprint, jumps, landings and rolls from the first library; the mantle, the running leap
+    // and the slide from the second (with how far each carries the body); climbing and hanging posed here
+    const c2 = (n) => this.parts.anims2?.animations.find((a) => a.name === n) || null;
+    const rm = this.parts.anims2?.userData?.rootMotion || {};
+    Object.assign(this.clips, {
+      sprint: c('Sprint_Loop'), jumpStart: c('Jump_Start'), fall: c('Jump_Loop'), land: c('Jump_Land'), roll: c('Roll'),
+      mantle: c2('ClimbUp_1m'), leapStart: c2('NinjaJump_Start'), leap: c2('NinjaJump_Idle_Loop'), leapLand: c2('NinjaJump_Land'),
+      slideStart: c2('Slide_Start'), slide: c2('Slide_Loop'), slideEnd: c2('Slide_Exit'), knock: c2('Hit_Knockback'),
+      ...buildParkourClips(this.parts.anims.scene, this.clips.idle),
+    });
+    for (const [k, n] of [['mantle', 'ClimbUp_1m'], ['slide', 'Slide_Loop']]) if (this.clips[k] && rm[n]) this.clips[k].userData = { rootMotion: rm[n] };
+    for (const k of ['sprint', 'jumpStart', 'fall', 'land', 'roll']) {
+      const clip = this.clips[k];
+      if (clip) clip.tracks = clip.tracks.filter((t) => !/^root\.position/.test(t.name));
     }
     // measure the standing height of a dressed character once (model units → metres)
     this.ready = true;

@@ -206,7 +206,9 @@ export function spanishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
   if (storeys > 1) B.box('wall', w + 0.1, 0.22, d + 0.1, m(0, base + h1, 0), '#f4ecdc'); // string course
   // roof: low tiled gable along the street, or a flat azotea behind a parapet
   const top = base + H;
+  let roofSpec;
   if (o.flat || (storeys > 1 && rnd() < 0.3)) {
+    roofSpec = { y: top + 0.1, flat: true, lip: 0.5, w, d };
     B.box('wall', w + 0.1, 0.6, d + 0.1, m(0, top + 0.3, 0), wall);
     B.box('stone', w - 0.5, 0.1, d - 0.5, m(0, top + 0.05, 0), '#b9ad98');
     // gárgolas: spouts through the parapet, each with the stain it leaves down the wall
@@ -226,6 +228,7 @@ export function spanishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
     }
   } else {
     const rise = Math.min(d * 0.2, 2.2);
+    roofSpec = { y: top, rise, ridge: 'x', o: 0.55, w, d };
     B.add('roof', gableRoofGeometry(w, d, rise, 0.55), m(0, top, 0), roofC);
     ridge(B, m, w, top + rise, roofC);
     for (const s of [-1, 1]) B.add('wall', gableEndGeometry(d, rise * (d / 2) / (d / 2 + 0.55)), m(s * w / 2, top, 0, s > 0 ? 0 : Math.PI), wall);
@@ -266,7 +269,7 @@ export function spanishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
     void cm;
   }
   streetFront(B, t, rnd, m, w, d, base, { rot, shop: storeys > 1 ? 0.35 : 0.22, balconyY: storeys > 1 ? base + h1 + 0.1 : 0 });
-  t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2, rot, H);
+  t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2, rot, H, roofSpec);
   return { top, front: m(0, base, -d / 2), door: -w / 2 + (doorI + 0.5) * (w / n), base, H, storeys, style: 'spanish', wall };
 }
 
@@ -293,7 +296,7 @@ export function portales(B, t, rnd, a, b, rot, w, d) {
   }
   B.add('roof', gableRoofGeometry(w, d, 1.8, 0.5), m(0, base + H, 0), pick(P.roofs, rnd));
   for (const s2 of [-1, 1]) B.add('wall', gableEndGeometry(d, 1.8 * (d / 2) / (d / 2 + 0.5)), m(s2 * w / 2, base + H, 0, s2 > 0 ? 0 : Math.PI), wall);
-  t.addCollider(a + (arc / 2) * Math.sin(rot), b + (arc / 2) * Math.cos(rot), w / 2, (d - arc) / 2, rot, H); // the body; the arcade stays walkable
+  t.addCollider(a + (arc / 2) * Math.sin(rot), b + (arc / 2) * Math.cos(rot), w / 2, (d - arc) / 2, rot, H, { y: base + H, rise: 1.8, ridge: 'x', o: 0.5, w, d, dz: -arc / 2 }); // the body; the arcade stays walkable
 }
 
 // ---------------------------------------------------------------- Port Royal
@@ -376,7 +379,7 @@ export function englishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
   }
   if (!gableFront) ridge(B, m, run, top + rise, roofC, roofB);
   streetFront(B, t, rnd, m, w, d, base, { rot, shop: 0.3, lamp: 0.2 });
-  t.addCollider(a, b, w / 2 + 0.15, d / 2 + 0.15, rot, H + rise);
+  t.addCollider(a, b, w / 2 + 0.15, d / 2 + 0.15, rot, H + rise, { y: top, rise, ridge: gableFront ? 'z' : 'x', o: 0.35, w, d });
   return { top, door: -w / 2 + 0.5 * (w / n), base, H, storeys, style: 'english', piazza: !!(o.piazza ?? false) };
 }
 
@@ -410,7 +413,7 @@ export function frenchCase(B, t, rnd, a, b, rot, w, d, o = {}) {
   }
   window_(B, m, 0, base + 1.4, d / 2, 1, { w: 0.9, h: 1.2, shutter: sh, glass: false });
   streetFront(B, t, rnd, m, w, d + gd * 2, base, { rot, shop: 0.12, lamp: 0.1 });
-  t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2 + gd / 2, rot, H + rise);
+  t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2 + gd / 2, rot, H + rise, { y: base + H - 0.05, rise, ridge: 'hip', o: 0.5, w, d: d + gd, dz: -gd / 2 });
   return { door: -w / 2 + (Math.floor(n / 2) + 0.5) * (w / n), base, H, storeys: 1, style: 'french', gallery: gd };
 }
 
@@ -460,7 +463,7 @@ export function palmettoHut(B, t, rnd, a, b, rot, w, d) {
   B.add('thatch', hipRoofGeometry(w, d, Math.min(w, d) * 0.85, 0.55), m(0, base + H - 0.05, 0), pick(P.thatch, rnd));
   door_(B, m, 0, base, -d / 2, -1, { w: 1.0, h: 1.9, col: '#3a2a1c' });
   window_(B, m, w / 2 - 0.9, base + 1.3, -d / 2, -1, { w: 0.7, h: 0.7, shutter: '#5a4630', glass: false });
-  t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2, rot, H + 1.5);
+  t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2, rot, H + 1.5, { y: base + H - 0.05, rise: Math.min(w, d) * 0.85, ridge: 'hip', o: 0.55, w, d });
 }
 
 // a stone house left roofless by the raids of 1703: broken walls of lime-plastered rubble
@@ -515,7 +518,7 @@ export function warehouse(B, t, rnd, a, b, rot, w, d, o = {}) {
   B.box('wood', 1.2, 2.3, 0.14, m(w / 4, base + 1.15, d / 2 + 0.04), '#4a3526');
   // hoist beam under the eaves
   B.box('wood', 0.25, 0.25, 1.6, m(0, base + H - 0.4, -d / 2 - 0.7), '#3b2a1e');
-  t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2, rot, H + 2);
+  t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2, rot, H + 2, { y: base + H, rise: d * 0.28, ridge: 'x', o: 0.5, w, d });
 }
 
 // a church: nave with a gabled tiled roof, a stone portal, and a bell tower with an open belfry
@@ -578,12 +581,12 @@ export function church(B, t, rnd, a, b, rot, o = {}) {
       B.box('metal', 0.9, 0.12, 0.12, m(tx, base + towerH + tw * 0.45 + 1.4, tz), '#2a2016');
     }
     const tp = new THREE.Vector3().applyMatrix4(m(tx, 0, tz)); // (local frame)
-    t.addCollider(tp.x, tp.z, tw / 2, tw / 2, rot, towerH);
+    t.addCollider(tp.x, tp.z, tw / 2, tw / 2, rot, towerH, { y: base + towerH + 0.2, flat: true, lip: 0, w: tw, d: tw }); // the belfry floor, for the view
   }
   if (dome) {
     B.add('stone', new THREE.SphereGeometry(wid * 0.34, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), m(0, base + h + rise * 0.6, len / 2 - wid * 0.45), '#8f949a');
     B.cyl('wall', wid * 0.36, wid * 0.36, 2.2, 16, m(0, base + h + rise * 0.6 - 1, len / 2 - wid * 0.45), wall);
   }
-  t.addCollider(a, b, wid / 2 + 0.2, len / 2 + 0.2, rot, h + rise);
+  t.addCollider(a, b, wid / 2 + 0.2, len / 2 + 0.2, rot, h + rise, { y: base + h, rise, ridge: 'z', o: 0.4, w: wid, d: len });
   return { door: m(0, base, -len / 2 - 1.2), base };
 }

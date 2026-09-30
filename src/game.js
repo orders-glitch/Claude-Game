@@ -1,6 +1,7 @@
 // Game orchestrator: world construction, main loop, modes (title / sailing / ashore), combat rules,
 // notoriety & pirate hunters, docking, boarding, loot, missions and persistence.
 import * as THREE from 'three';
+import { colliderSurface } from './world/surface.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -473,7 +474,7 @@ export class Game {
 
   enterFoot(pos, town) {
     this.mode = 'foot';
-    this.ui.hint('[WASD] walk · [Shift] run · [Left Click] cutlass · hold [Right Click] to aim a pistol · [E] interact · [F] return to ship');
+    this.ui.hint('[WASD] walk · hold [Shift] run, then sprint · [Space] jump, climb or vault · [C] let go / slide · [Left Click] cutlass · hold [Right Click] aim a pistol · [E] interact · [F] return to ship');
     if (this.walker) this.walker.dispose();
     this.walker = new PlayerWalker(this, { x: pos.x, y: pos.y, z: pos.z, yaw: town ? town.dir + Math.PI : 0 });
     this.walker.camYaw = this.walker.yaw;
@@ -1432,7 +1433,63 @@ export class Game {
     return out;
   }
 
+  // colliders within a few metres of a point, from a 16 m grid built per town on first use
+  collidersAround(x, z) {
+    const out = [];
+    const add = (host) => {
+      if (!host._grid) {
+        host._grid = new Map();
+        for (const c of host.colliders) {
+          const r = c.hw + c.hd;
+          for (let i = Math.floor((c.x - r) / 16); i <= Math.floor((c.x + r) / 16); i++) for (let j = Math.floor((c.z - r) / 16); j <= Math.floor((c.z + r) / 16); j++) {
+            const k = i + ',' + j;
+            if (!host._grid.has(k)) host._grid.set(k, []);
+            host._grid.get(k).push(c);
+          }
+        }
+      }
+      const l = host._grid.get(Math.floor(x / 16) + ',' + Math.floor(z / 16));
+      if (l) for (const c of l) out.push(c);
+    };
+    for (const t of this.townList) if (Math.abs(x - t.center.x) < t.R * 2 && Math.abs(z - t.center.z) < t.R * 2) add(t);
+    if (Math.abs(x - this.salvage.center.x) < 120 && Math.abs(z - this.salvage.center.z) < 120) add(this.salvage);
+    return out;
+  }
+
+  // Walkable height under a point for someone whose feet are at y: the ground, or a roof, a wall top, a crate
+  // they are standing on (anything no more than `step` above their feet)
+  surfaceAt(x, z, y, step = 0.45) {
+    let h = this.groundAt(x, z), hit = null;
+    for (const c of this.collidersAround(x, z)) {
+      const dx = x - c.x, dz = z - c.z;
+      const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
+      if (Math.abs(lx) > c.hw || Math.abs(lz) > c.hd) continue;
+      const s = colliderSurface(c, lx, lz);
+      if (s <= y + step && s > h) { h = s; hit = c; }
+    }
+    this.lastSurface = hit;
+    return h;
+  }
+
   collideWalker(w) {
+    w.contact = null;
+    if (w.isPlayer) {
+      // the player: only what stands above their feet blocks them, and the wall they run into is remembered
+      // (for climbing)
+      for (const c of this.collidersAround(w.pos.x, w.pos.z)) {
+        const dx = w.pos.x - c.x, dz = w.pos.z - c.z;
+        const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
+        const px = c.hw + w.radius - Math.abs(lx), pz = c.hd + w.radius - Math.abs(lz);
+        if (px <= 0 || pz <= 0) continue;
+        const top = colliderSurface(c, Math.max(-c.hw, Math.min(c.hw, lx)), Math.max(-c.hd, Math.min(c.hd, lz)));
+        if (w.pos.y >= top - 0.45) continue; // on it, or stepping up onto it
+        let ox = 0, oz = 0;
+        if (px < pz) ox = Math.sign(lx) * px; else oz = Math.sign(lz) * pz;
+        w.pos.x += ox * c.cos + oz * c.sin;
+        w.pos.z += -ox * c.sin + oz * c.cos;
+        w.contact = { c, axis: px < pz ? 'x' : 'z', sign: px < pz ? Math.sign(lx) : Math.sign(lz) };
+      }
+    } else
     for (const list of this.collidersNear(w.pos.x, w.pos.z)) {
       for (const c of list) {
         const dx = w.pos.x - c.x, dz = w.pos.z - c.z;

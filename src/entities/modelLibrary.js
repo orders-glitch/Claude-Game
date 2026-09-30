@@ -151,6 +151,10 @@ const GRIPS = {
 };
 
 // ---------------------------------------------------------------- per-character instance
+// free-running moves: loops play at their own pace, one-shots are scrubbed by st.moveT (0..1)
+const MOVES_LOOP = ['fall', 'leap', 'climb', 'hang', 'shimmyL', 'shimmyR', 'slide'];
+const MOVES_ONCE = ['jumpStart', 'land', 'roll', 'mantle', 'leapStart', 'leapLand', 'slideStart', 'slideEnd', 'knock'];
+
 export class GltfRig {
   // entry: prepared model description; prebuilt: an already-assembled unique model (skips cloning)
   constructor(entry, prebuilt = null) {
@@ -214,6 +218,11 @@ export class GltfRig {
     add('hit', splitClipC(C.hit, up, true), true);
     add('death', C.death, true);
     for (const k of ACTIVITIES) if (C[k]) add('act_' + k, C[k]);
+    // free running: full-body moves over the locomotion (one-shots are driven by the game's own clock)
+    add('sprint', C.sprint);
+    for (const k of MOVES_LOOP) if (C[k]) add('mv_' + k, C[k]);
+    for (const k of MOVES_ONCE) if (C[k]) { add('mv_' + k, C[k]); this.actions['mv_' + k].timeScale = 0; }
+    this.mw = {};
     if (this.actions.idle) { this.actions.idle.setEffectiveWeight(1); this.actions.idle.time = Math.random() * this.actions.idle.getClip().duration; }
     this.w = { slash: 0, aimP: 0, aimM: 0, dig: 0, dead: 0, act: 0 };
     this.wasDead = false;
@@ -252,6 +261,7 @@ export class GltfRig {
   update(dt, st) {
     const A = this.actions;
     const k = (rate) => 1 - Math.exp(-rate * dt);
+    const k2 = k;
     const towards = (key, target, rate = 10) => { this.w[key] += (target - this.w[key]) * k(rate); return this.w[key]; };
     const setW = (name, w) => A[name]?.setEffectiveWeight(w);
 
@@ -285,11 +295,33 @@ export class GltfRig {
     else { setW('aimPistol', wP * (1 - wS)); setW('aimMusket', wM * (1 - wS)); }
     setW('dig', wD);
 
+    // the free-running layer: each move fades in and out on its own weight
+    const mv = st.move && A['mv_' + st.move] ? st.move : null;
+    if (mv && mv !== this.curMove && MOVES_ONCE.includes(mv)) A['mv_' + mv].time = 0;
+    this.curMove = mv;
+    let moveW = 0;
+    for (const k of [...MOVES_LOOP, ...MOVES_ONCE]) {
+      const a = A['mv_' + k];
+      if (!a) continue;
+      const w = (this.mw[k] = (this.mw[k] || 0) + ((k === mv ? 1 : 0) - (this.mw[k] || 0)) * k2(st.moveBlend || 14));
+      if (k === mv) {
+        if (MOVES_ONCE.includes(k)) a.time = Math.min(0.999, Math.max(0, st.moveT || 0)) * a.getClip().duration;
+        else a.timeScale = st.moveRate ?? 1;
+      }
+      a.setEffectiveWeight(w < 0.002 ? 0 : w);
+      moveW += w;
+    }
+    moveW = Math.min(1, moveW);
+
     const s = st.speed || 0;
     const walkW = Math.max(0, Math.min(1, s / 1.4)) * (1 - Math.max(0, Math.min(1, (s - 2.6) / 2)));
-    const runW = Math.max(0, Math.min(1, (s - 2.6) / 2));
-    const idleW = Math.max(0, 1 - walkW - runW);
-    const loco = (1 - wD) * (1 - (this.w.act || 0));
+    const runAll = Math.max(0, Math.min(1, (s - 2.6) / 2));
+    // past a hard run the stride opens into a flat-out sprint
+    const sprintW = A.sprint ? runAll * Math.max(0, Math.min(1, (s - 5.8) / 1.4)) : 0;
+    const runW = runAll - sprintW;
+    const idleW = Math.max(0, 1 - walkW - runAll);
+    const loco = (1 - wD) * (1 - (this.w.act || 0)) * (1 - moveW);
+    if (A.sprint) { A.sprint.timeScale = Math.max(0.8, s / 7.5); A.sprint.setEffectiveWeight(sprintW * loco * (1 - upper)); }
     if (A.walk) { A.walk.timeScale = s > 0.2 ? Math.max(0.5, s / 1.6) : 1; if (A.walk_lower) { A.walk_lower.timeScale = A.walk.timeScale; A.walk_lower.time = A.walk.time; } }
     if (A.run) { A.run.timeScale = Math.max(0.7, s / 5.5); if (A.run_lower) { A.run_lower.timeScale = A.run.timeScale; A.run_lower.time = A.run.time; } }
     if (A.idle_lower && A.idle) A.idle_lower.time = A.idle.time;

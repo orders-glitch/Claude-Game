@@ -257,10 +257,21 @@ export class Town {
 
   reserve(a, b, hw, hd) { this.lots.push({ a, b, hw, hd, rot: 0 }); }
 
-  addCollider(a, b, hw, hd, rot = 0, height = 12) {
+  // An oriented box that walkers can't pass through. `roof` (optional) describes what's on top so it can be
+  // climbed and walked on: { y: eave height, rise, ridge: 'x' | 'z' | 'hip', o: overhang, w, d, dz } or
+  // { y: floor height, flat: true, lip: parapet height }. Without one the top is a flat surface at `height`.
+  addCollider(a, b, hw, hd, rot = 0, height = 12, roof = null) {
     const w = this.toWorld(a, b);
     const ang = this.dir + rot; // local axes rotate with town
-    this.colliders.push({ x: w.x, z: w.z, hw, hd, cos: Math.cos(ang), sin: Math.sin(ang), top: this.level + height });
+    const ground = Math.max(this.level, this.terrain.height(w.x, w.z));
+    const c = { x: w.x, z: w.z, hw, hd, cos: Math.cos(ang), sin: Math.sin(ang), top: ground + height };
+    if (roof) {
+      c.roof = roof.flat
+        ? { flat: true, y: roof.y, lip: roof.lip || 0 }
+        : { y: roof.y, rise: roof.rise, ridge: roof.ridge, X: roof.w / 2 + roof.o, Z: roof.d / 2 + roof.o, dz: roof.dz || 0 };
+      c.top = roof.flat ? roof.y + (roof.lip || 0) : roof.y + roof.rise;
+    }
+    this.colliders.push(c);
   }
 
   // ---------------------------------------------------------------- build
