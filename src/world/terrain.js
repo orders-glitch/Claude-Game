@@ -2,9 +2,104 @@
 import * as THREE from 'three';
 import { Simplex, smoothstep, lerp, clamp } from '../core/noise.js';
 import { makeTerrainMaterial } from './terrainMaterial.js';
+import { COASTLINES } from '../game/coastlines.js';
 
 export const SEA_FLOOR = -40;
 export const WORLD_HALF = 9000;
+
+// ---------------------------------------------------------------- coastline distance fields
+// Squared Euclidean distance transform (Felzenszwalb & Huttenlocher) along one line.
+function edt1d(f, n, d, v, zz) {
+  let k = 0; v[0] = 0; zz[0] = -Infinity; zz[1] = Infinity;
+  for (let q = 1; q < n; q++) {
+    let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    while (s <= zz[k]) { k--; s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
+    k++; v[k] = q; zz[k] = s; zz[k + 1] = Infinity;
+  }
+  k = 0;
+  for (let q = 0; q < n; q++) { while (zz[k + 1] < q) k++; d[q] = (q - v[k]) ** 2 + f[v[k]]; }
+}
+function edt2d(grid, W, H) {
+  const n = Math.max(W, H), f = new Float64Array(n), d = new Float64Array(n), v = new Int32Array(n), zz = new Float64Array(n + 1);
+  for (let x = 0; x < W; x++) { for (let y = 0; y < H; y++) f[y] = grid[y * W + x]; edt1d(f, H, d, v, zz); for (let y = 0; y < H; y++) grid[y * W + x] = d[y]; }
+  for (let y = 0; y < H; y++) { for (let x = 0; x < W; x++) f[x] = grid[y * W + x]; edt1d(f, W, d, v, zz); for (let x = 0; x < W; x++) grid[y * W + x] = d[x]; }
+}
+
+// Rasterise a coastline polygon and build a signed distance field (metres, positive inland).
+function buildCoast(is, pts) {
+  // principal axes -> the island's box (used by meshing, scattering and culling)
+  let cx = 0, cz = 0;
+  for (const [x, z] of pts) { cx += x; cz += z; }
+  cx /= pts.length; cz /= pts.length;
+  let sxx = 0, szz = 0, sxz = 0;
+  for (const [x, z] of pts) { sxx += (x - cx) ** 2; szz += (z - cz) ** 2; sxz += (x - cx) * (z - cz); }
+  const ang = 0.5 * Math.atan2(2 * sxz, sxx - szz), ux = Math.cos(ang), uz = Math.sin(ang);
+  let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity, x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const [x, z] of pts) {
+    const a = (x - cx) * ux + (z - cz) * uz, b = -(x - cx) * uz + (z - cz) * ux;
+    a0 = Math.min(a0, a); a1 = Math.max(a1, a); b0 = Math.min(b0, b); b1 = Math.max(b1, b);
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z);
+  }
+  is.x = cx + ((a0 + a1) / 2) * ux - ((b0 + b1) / 2) * uz;
+  is.z = cz + ((a0 + a1) / 2) * uz + ((b0 + b1) / 2) * ux;
+  is.rx = (a1 - a0) / 2; is.rz = (b1 - b0) / 2;
+  is.rot = -ang; is.cos = Math.cos(is.rot); is.sin = Math.sin(is.rot);
+  is.minR = Math.min(is.rx, is.rz); is.maxR = Math.max(is.rx, is.rz);
+  is.warpAmp = Math.min(22, is.minR * 0.08); // the real outline already carries the detail
+  is.hillRange = Math.max(40, is.minR * 0.85);
+  is.boundR = is.maxR + 420;
+  // raster
+  const pad = 360, cell = Math.min(8, Math.max(2.5, (is.maxR * 2) / 1100));
+  const W = Math.ceil((x1 - x0 + pad * 2) / cell), H = Math.ceil((z1 - z0 + pad * 2) / cell);
+  const gx0 = x0 - pad, gz0 = z0 - pad;
+  const inside = new Uint8Array(W * H);
+  const xs = [];
+  for (let j = 0; j < H; j++) {
+    const z = gz0 + (j + 0.5) * cell;
+    xs.length = 0;
+    for (let i = 0, k = pts.length - 1; i < pts.length; k = i++) {
+      const [xi, zi] = pts[i], [xk, zk] = pts[k];
+      if ((zi > z) !== (zk > z)) xs.push(xi + ((z - zi) / (zk - zi)) * (xk - xi));
+    }
+    xs.sort((p, q) => p - q);
+    for (let t = 0; t + 1 < xs.length; t += 2) {
+      const i0 = Math.max(0, Math.ceil((xs[t] - gx0) / cell - 0.5)), i1 = Math.min(W - 1, Math.floor((xs[t + 1] - gx0) / cell - 0.5));
+      for (let i = i0; i <= i1; i++) inside[j * W + i] = 1;
+    }
+  }
+  const BIG = 1e12;
+  const din = new Float64Array(W * H), dout = new Float64Array(W * H);
+  for (let k = 0; k < W * H; k++) { din[k] = inside[k] ? BIG : 0; dout[k] = inside[k] ? 0 : BIG; }
+  edt2d(din, W, H); // inside cells: distance to nearest outside cell
+  edt2d(dout, W, H); // outside cells: distance to nearest inside cell
+  const data = new Float32Array(W * H);
+  for (let k = 0; k < W * H; k++) data[k] = inside[k] ? (Math.sqrt(din[k]) - 0.5) * cell : -(Math.sqrt(dout[k]) - 0.5) * cell;
+  is.sdf = { x0: gx0, z0: gz0, cell, W, H, data };
+}
+
+function sampleSDF(s, x, z) {
+  const fx = (x - s.x0) / s.cell - 0.5, fz = (z - s.z0) / s.cell - 0.5;
+  if (fx < 0 || fz < 0 || fx >= s.W - 1 || fz >= s.H - 1) {
+    // beyond the raster: keep falling away from the island
+    const ex = Math.max(-fx, fx - (s.W - 1), 0), ez = Math.max(-fz, fz - (s.H - 1), 0);
+    const cx = Math.min(Math.max(fx, 0), s.W - 1) | 0, cz = Math.min(Math.max(fz, 0), s.H - 1) | 0;
+    return s.data[cz * s.W + cx] - Math.hypot(ex, ez) * s.cell;
+  }
+  const i = fx | 0, j = fz | 0, tx = fx - i, tz = fz - j, W = s.W, D = s.data;
+  const a = D[j * W + i], b = D[j * W + i + 1], c = D[(j + 1) * W + i], d = D[(j + 1) * W + i + 1];
+  return (a + (b - a) * tx) + ((c + (d - c) * tx) - (a + (b - a) * tx)) * tz;
+}
+
+// Shallow banks in game coordinates (ellipses with noisy edges); `cays`: sandy islets scattered on each
+const BANKS = [
+  { x: 1150, z: -4350, rx: 1500, rz: 820, rot: 0.25, cays: 14 }, // Andros – New Providence (Great Bahama Bank)
+  { x: 3150, z: -4050, rx: 1650, rz: 380, rot: -0.85, cays: 16 }, // Exuma Cays
+  { x: 3450, z: -5300, rx: 1050, rz: 300, rot: 0.55, cays: 6 }, // Eleuthera
+  { x: -2800, z: -4850, rx: 1900, rz: 330, rot: -0.3, cays: 18 }, // Florida Keys reef tract
+  { x: -1850, z: 880, rx: 420, rz: 170, rot: 0.1, cays: 3 }, // Grand Cayman
+  { x: 900, z: 2300, rx: 900, rz: 380, rot: 0.15, cays: 9 }, // Pedro Bank
+  { x: 2700, z: 1650, rx: 300, rz: 180, rot: -0.3, cays: 4 }, // Morant Cays
+];
 
 export class Terrain {
   constructor(islands) {
@@ -21,6 +116,20 @@ export class Terrain {
         boundR: maxR + Math.min(120, minR * 0.35) + 420,
       };
     });
+    // real coastlines: a signed-distance field per island replaces the ellipse (and redefines its box)
+    for (const is of this.islands) if (COASTLINES[is.id]) buildCoast(is, COASTLINES[is.id]);
+    // shallow banks (the Great Bahama Bank, the Florida reef tract): wide turquoise shallows, deep enough to
+    // sail over, scattered with sandy cays
+    this.banks = BANKS.map((b) => ({ ...b, cos: Math.cos(b.rot), sin: Math.sin(b.rot) }));
+    const rnd = (() => { let t = 1716; return () => ((t = (t * 1664525 + 1013904223) >>> 0) / 4294967296); })();
+    this.cays = [];
+    for (const b of this.banks) {
+      for (let k = 0; k < b.cays; k++) {
+        const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * 0.8;
+        const lx = Math.cos(a) * r * b.rx, lz = Math.sin(a) * r * b.rz;
+        this.cays.push({ x: b.x + lx * b.cos + lz * b.sin, z: b.z - lx * b.sin + lz * b.cos, r: 18 + rnd() * 45, e: 0.4 + rnd() * 0.6, rot: rnd() * 3 });
+      }
+    }
     this.zones = []; // flattened town areas
     this.lastD = 0;
     this.lastIsland = null;
@@ -31,10 +140,14 @@ export class Terrain {
     const dx = x - is.x, dz = z - is.z;
     const lx = dx * is.cos - dz * is.sin;
     const lz = dx * is.sin + dz * is.cos;
-    const u = lx / is.rx, v = lz / is.rz;
-    const nd = Math.sqrt(u * u + v * v);
-    const g = Math.sqrt((u / is.rx) ** 2 + (v / is.rz) ** 2) / Math.max(nd, 1e-4);
-    let d = nd < 1 ? Math.min((1 - nd) / g, (1 - nd) * is.minR) : (1 - nd) / g;
+    let d;
+    if (is.sdf) d = sampleSDF(is.sdf, x, z);
+    else {
+      const u = lx / is.rx, v = lz / is.rz;
+      const nd = Math.sqrt(u * u + v * v);
+      const g = Math.sqrt((u / is.rx) ** 2 + (v / is.rz) ** 2) / Math.max(nd, 1e-4);
+      d = nd < 1 ? Math.min((1 - nd) / g, (1 - nd) * is.minR) : (1 - nd) / g;
+    }
     const n = this.noise;
     d += n.fbm(x * 0.0032 + is.seed * 31.7, z * 0.0032 - is.seed * 7.3, 3) * is.warpAmp
        + n.noise2(x * 0.03 + is.seed, z * 0.03) * Math.min(6, is.minR * 0.08);
@@ -58,8 +171,33 @@ export class Terrain {
     return { h, d };
   }
 
+  // height of the bank floor (and its cays) at (x, z), or SEA_FLOOR outside every bank
+  bankHeight(x, z) {
+    let h = SEA_FLOOR;
+    for (const b of this.banks) {
+      const dx = x - b.x, dz = z - b.z;
+      if (Math.abs(dx) > b.rx + b.rz + 400 || Math.abs(dz) > b.rx + b.rz + 400) continue;
+      const lx = dx * b.cos - dz * b.sin, lz = dx * b.sin + dz * b.cos;
+      const nd = Math.hypot(lx / b.rx, lz / b.rz) + this.noise.fbm(x * 0.0011 + b.x, z * 0.0011, 3) * 0.28;
+      if (nd > 1.35) continue;
+      const floor = -5.2 + this.noise.noise2(x * 0.004, z * 0.004) * 1.3 + this.noise.noise2(x * 0.03, z * 0.03) * 0.35;
+      h = Math.max(h, lerp(floor, SEA_FLOOR, smoothstep(0.85, 1.35, nd)));
+    }
+    if (h > -9) {
+      for (const c of this.cays) {
+        const dx = x - c.x, dz = z - c.z;
+        if (dx * dx + dz * dz > (c.r * 3.5) ** 2) continue;
+        const cs = Math.cos(c.rot), sn = Math.sin(c.rot);
+        const u = (dx * cs - dz * sn) / c.r, v = (dx * sn + dz * cs) / (c.r * c.e);
+        const dd = Math.sqrt(u * u + v * v) + this.noise.noise2(x * 0.05, z * 0.05) * 0.2;
+        h = Math.max(h, 1.3 - dd * 1.6 - Math.max(0, dd - 1) * 2.2);
+      }
+    }
+    return h;
+  }
+
   baseHeight(x, z) {
-    let best = SEA_FLOOR;
+    let best = this.bankHeight(x, z);
     let bestD = -1e9;
     let bestIs = null;
     for (let i = 0; i < this.islands.length; i++) {

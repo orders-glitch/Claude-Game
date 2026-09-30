@@ -55,7 +55,23 @@ export class Town {
     // --- locate coastline & town frame
     const dir = port.dir;
     const sx = -Math.sin(dir), sz = -Math.cos(dir); // seaward
-    const c = terrain.findCoast(port.coast[0], port.coast[1], sx, sz);
+    // pick the stretch of this coast with open water off the pier and room for a town behind it
+    let c = terrain.findCoast(port.coast[0], port.coast[1], sx, sz), best = -1;
+    for (let off = -700; off <= 700; off += 50) {
+      const q = terrain.findCoast(port.coast[0] - sz * off, port.coast[1] + sx * off, sx, sz);
+      let score = 0;
+      for (let d = 20; d <= 200; d += 20) if (terrain.baseHeight(q.x + sx * d, q.z + sz * d) < -3) score += 1;
+      for (let d = 20; d <= 300; d += 20) {
+        const h = terrain.baseHeight(q.x - sx * d, q.z - sz * d);
+        if (h > 0.8 && h < 12) score += 1.2; else if (h <= 0.8) score -= 2;
+      }
+      for (const w of [-120, -60, 60, 120]) {
+        const h = terrain.baseHeight(q.x - sx * 80 - sz * w, q.z - sz * 80 + sx * w);
+        if (h > 0.8 && h < 14) score += 0.8;
+      }
+      score -= Math.abs(off) / 400; // stay near the historical site
+      if (score > best) { best = score; c = q; }
+    }
     this.coast = new THREE.Vector3(c.x, 0, c.z);
     this.dir = dir;
     this.sea = new THREE.Vector2(sx, sz);
