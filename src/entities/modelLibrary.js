@@ -152,7 +152,7 @@ const GRIPS = {
 
 // ---------------------------------------------------------------- per-character instance
 // free-running moves: loops play at their own pace, one-shots are scrubbed by st.moveT (0..1)
-const MOVES_LOOP = ['fall', 'leap', 'climb', 'hang', 'shimmyL', 'shimmyR', 'slide'];
+const MOVES_LOOP = ['fall', 'leap', 'climb', 'hang', 'shimmyL', 'shimmyR', 'slide', 'swim', 'swimFwd'];
 const MOVES_ONCE = ['jumpStart', 'land', 'roll', 'mantle', 'leapStart', 'leapLand', 'slideStart', 'slideEnd', 'knock'];
 
 export class GltfRig {

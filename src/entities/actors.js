@@ -157,7 +157,9 @@ export class PlayerWalker extends Walker {
     this.aiming = false;
     this.swingHit = false;
     // free running
-    this.mode = 'ground'; // ground | air | climb | hang | mantle | roll | land | slide
+    this.mode = 'ground'; // ground | air | climb | hang | mantle | roll | land | slide | swim
+    this.breath = 1; // under water: a lungful lasts about half a minute
+    this.underwater = false;
     this.sprintT = 0;
     this.fallTop = this.pos.y;
     this.moveAnim = null; this.moveT = 0; this.moveRate = 1;
@@ -178,7 +180,7 @@ export class PlayerWalker extends Walker {
     this.freeRun(dt, input);
 
     // cutlass
-    if (input.mouseHit(0) && !this.aiming && this.mode === 'ground') {
+    if (input.mouseHit(0) && !this.aiming && (this.mode === 'ground' || this.mode === 'swim')) {
       if (this.attackT < 0) this.startSwing();
       else if (this.attackT > 0.45) this.comboQueued = true;
     }
@@ -239,7 +241,14 @@ export class PlayerWalker extends Walker {
       case 'climb': return this.climbStep(dt, input, fx, fz);
       case 'hang': return this.hangStep(dt, input, fx, fz);
       case 'mantle': return this.mantleStep(dt);
+      case 'swim': return this.swimStep(dt, input, wx, wz, shift, len);
       default: break;
+    }
+    // walking out of your depth, or dropping into deep water: swim
+    if (this.mode === 'ground' || (this.mode === 'air' && this.vy < 0)) {
+      const sea = g.ocean.heightAt(this.pos.x, this.pos.z);
+      const floor = g.surfaceAt(this.pos.x, this.pos.z, this.pos.y);
+      if (floor < sea - 1.35 && this.pos.y < sea - (this.mode === 'air' ? 0.3 : 0.9)) return this.startSwim(this.mode === 'air' ? this.fallTop - this.pos.y : 0);
     }
     // ---- on foot or in the air
     const moving = len > 0;
@@ -290,8 +299,8 @@ export class PlayerWalker extends Walker {
     this.vel.x += (wishX - this.vel.x) * k;
     this.vel.z += (wishZ - this.vel.z) * k;
     let nx = this.pos.x + this.vel.x * dt, nz = this.pos.z + this.vel.z * dt;
-    // don't walk off into deep water (unless from a height, when you dive in)
-    if (this.mode === 'ground' && g.surfaceAt(nx, nz, this.pos.y) < -0.9) {
+    // wade out and you'll be swimming; only a non-swimmer is held back at the water's edge
+    if (this.mode === 'ground' && !this.isPlayer && g.surfaceAt(nx, nz, this.pos.y) < -0.9) {
       const gx = g.surfaceAt(nx, this.pos.z, this.pos.y), gz = g.surfaceAt(this.pos.x, nz, this.pos.y);
       if (gx >= -0.9) nz = this.pos.z; else if (gz >= -0.9) nx = this.pos.x; else { nx = this.pos.x; nz = this.pos.z; }
       this.vel.x = this.vel.z = 0;
@@ -500,6 +509,88 @@ export class PlayerWalker extends Walker {
     if (input.hit('KeyC')) this.letGo(W);
   }
 
+  // ---------------------------------------------------------------- swimming and diving
+  startSwim(fall = 0) {
+    const g = this.game;
+    this.mode = 'swim';
+    this.onGround = false;
+    this.leaping = false;
+    this.attackT = -1;
+    this.aiming = false;
+    // a dive from a height carries you under
+    this.vy = fall > 3 ? -Math.min(8, 2 + fall * 0.5) : 0;
+    this.vel.multiplyScalar(0.5);
+    g.effects.splash(this.pos.x, this.pos.z, fall > 3 ? 0.9 : 0.4);
+    g.audio.splash?.(this.pos);
+    g.onSwim?.(true);
+  }
+
+  // Swimming at the surface: head above the waves, WASD to swim, Shift for a hard crawl. C dives; under water
+  // Space swims up, C down, and WASD carries you the way you're looking. Breath runs out after half a minute
+  // under; then you drown by degrees. Swim into the shallows to wade out, or Space at a pier or ship's side to
+  // haul yourself up.
+  swimStep(dt, input, wx, wz, shift, len) {
+    const g = this.game;
+    const sea = g.ocean.heightAt(this.pos.x, this.pos.z);
+    const surfY = sea - 1.3; // (where the feet hang with the head above water)
+    const floor = g.surfaceAt(this.pos.x, this.pos.z, this.pos.y + 0.5, 0.5);
+    const under = this.pos.y < surfY - 0.45;
+    // under water, W follows the camera's pitch down into the deep
+    let up = 0;
+    if (input.down('Space')) up += 1;
+    if (input.down('KeyC') || input.down('ControlLeft')) up -= 1;
+    if (under && len > 0 && input.down('KeyW')) up += -Math.sin(this.camPitch) * 1.2;
+    const speed = (shift ? 3.4 : 1.9) * (under ? 0.9 : 1);
+    const k = 1 - Math.exp(-2.5 * dt);
+    this.vel.x += (wx * speed * Math.min(1, len) - this.vel.x) * k;
+    this.vel.z += (wz * speed * Math.min(1, len) - this.vel.z) * k;
+    // bobbing up to the surface unless swimming down
+    const wantVy = up !== 0 ? clamp(up, -1, 1) * 2.2 : under ? 0.35 : (surfY - this.pos.y) * 4;
+    this.vy += (wantVy - this.vy) * (1 - Math.exp(-3 * dt));
+    let nx = this.pos.x + this.vel.x * dt, nz = this.pos.z + this.vel.z * dt;
+    this.pos.x = nx; this.pos.z = nz;
+    g.collideWalker(this);
+    this.pos.y = Math.min(surfY, Math.max(floor + 0.2, this.pos.y + this.vy * dt));
+    if (this.pos.y >= surfY - 0.01 && this.vy > 0) this.vy = 0;
+    if (len > 0) this.yaw = dampAngle(this.yaw, Math.atan2(-wx, -wz), 4, dt);
+    this.underwater = this.pos.y < surfY - 0.45;
+    // breath
+    if (this.underwater) {
+      this.breath = Math.max(0, this.breath - dt / 32);
+      if (this.breath <= 0) { this.drownT = (this.drownT || 0) + dt; if (this.drownT > 1) { this.drownT = 0; this.takeDamage(14, null); } }
+    } else {
+      if (this.breath < 0.4 && !this.gasped) { this.gasped = true; g.audio.grunt?.(this.pos); }
+      this.breath = Math.min(1, this.breath + dt / 3.5);
+      if (this.breath > 0.6) this.gasped = false;
+    }
+    // animation: a crawl or treading water; under water the body pitches with the way it's going
+    const hs = Math.hypot(this.vel.x, this.vel.z);
+    this.moveAnim = hs > 0.4 || (this.underwater && Math.abs(this.vy) > 0.5) ? 'swimFwd' : 'swim';
+    this.moveRate = shift ? 1.4 : 1;
+    this.moveBlend = 6;
+    this.pitchT = this.underwater ? clamp(this.vy * 0.35, -0.9, 0.9) : 0; // (+: head up)
+    // out of the water: wading ashore, or up onto a pier / the ship's side
+    if (floor > sea - 1.2 && !this.underwater) { this.mode = 'ground'; this.vy = 0; this.pos.y = Math.max(this.pos.y, floor); this.leaveWater(); return; }
+    if (!this.underwater && input.hit('Space')) {
+      const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+      const ax = this.pos.x + fx * 0.9, az = this.pos.z + fz * 0.9;
+      const top = g.surfaceAt(ax, az, sea + 2.2, 3.5);
+      if (top > sea - 0.2 && top < sea + 2.2) {
+        this.mant = { t: 0, dur: 1.1, x0: this.pos.x, z0: this.pos.z, y0: this.pos.y, x1: ax + fx * 0.3, z1: az + fz * 0.3, y1: top };
+        this.mode = 'mantle';
+        g.audio.splash?.(this.pos);
+        this.leaveWater();
+        return;
+      }
+    }
+  }
+
+  leaveWater() {
+    this.underwater = false;
+    this.pitchT = 0;
+    this.game.onSwim?.(false);
+  }
+
   // pull up over the edge, carried by the clip's own root motion scaled to the height of the wall
   startMantle(W, dur) {
     const top = this.wallTop(W, W.along);
@@ -558,6 +649,8 @@ export class PlayerWalker extends Walker {
     this.prevPos.copy(this.pos);
     this.visOff.multiplyScalar(Math.exp(-10 * dt));
     this.root.position.add(this.visOff);
+    this.pitchNow = damp(this.pitchNow || 0, this.mode === 'swim' ? this.pitchT || 0 : 0, 4, dt);
+    this.root.rotation.x = this.pitchNow;
   }
 
   dispose() {
@@ -599,8 +692,9 @@ export class PlayerWalker extends Walker {
     }
     this.curCamDist = damp(this.curCamDist || d, d, d < (this.curCamDist || d) ? 30 : 6, dt);
     const target = head.clone().addScaledVector(back, this.curCamDist);
-    const wy = Math.max(target.y, this.game.ocean.heightAt(target.x, target.z) + 0.6);
-    target.y = wy;
+    const sea = this.game.ocean.heightAt(target.x, target.z);
+    // above the waves, or (diving) below them, never cutting through the surface
+    target.y = this.underwater ? Math.min(target.y, sea - 0.5) : Math.max(target.y, sea + 0.6);
     camera.position.copy(target);
     camera.lookAt(head.x - back.x * 4, head.y - back.y * 4 + 0.2, head.z - back.z * 4);
     // the view opens a little at a flat-out sprint

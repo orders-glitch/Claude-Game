@@ -252,13 +252,13 @@ class Humans {
     const c2 = (n) => this.parts.anims2?.animations.find((a) => a.name === n) || null;
     const rm = this.parts.anims2?.userData?.rootMotion || {};
     Object.assign(this.clips, {
-      sprint: c('Sprint_Loop'), jumpStart: c('Jump_Start'), fall: c('Jump_Loop'), land: c('Jump_Land'), roll: c('Roll'),
+      sprint: c('Sprint_Loop'), swim: c('Swim_Idle_Loop'), swimFwd: c('Swim_Fwd_Loop'), jumpStart: c('Jump_Start'), fall: c('Jump_Loop'), land: c('Jump_Land'), roll: c('Roll'),
       mantle: c2('ClimbUp_1m'), leapStart: c2('NinjaJump_Start'), leap: c2('NinjaJump_Idle_Loop'), leapLand: c2('NinjaJump_Land'),
       slideStart: c2('Slide_Start'), slide: c2('Slide_Loop'), slideEnd: c2('Slide_Exit'), knock: c2('Hit_Knockback'),
       ...buildParkourClips(this.parts.anims.scene, this.clips.idle),
     });
     for (const [k, n] of [['mantle', 'ClimbUp_1m'], ['slide', 'Slide_Loop']]) if (this.clips[k] && rm[n]) this.clips[k].userData = { rootMotion: rm[n] };
-    for (const k of ['sprint', 'jumpStart', 'fall', 'land', 'roll']) {
+    for (const k of ['sprint', 'swim', 'swimFwd', 'jumpStart', 'fall', 'land', 'roll']) {
       const clip = this.clips[k];
       if (clip) clip.tracks = clip.tracks.filter((t) => !/^root\.position/.test(t.name));
     }

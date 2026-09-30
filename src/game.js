@@ -46,6 +46,7 @@ import { ISLANDS, PORTS, NATIONS, SHIP_CLASSES, SHIP_NAMES, GOODS, SALVAGE_CAMP,
 import { GameState } from './game/state.js';
 import { Wreckage } from './entities/wreckage.js';
 import { Stealth } from './game/stealth.js';
+import { Seaside } from './game/seaside.js';
 import { Missions } from './game/missions.js';
 import { UI } from './ui/ui.js';
 
@@ -321,6 +322,7 @@ export class Game {
     this.mate = null;
     this.wreckage?.clear();
     this.stealth?.clearTown();
+    if (this.seaside) { this.seaside.clear(); this.seaside.rowing = false; if (this.seaside.boat) this.seaside.boat.group.visible = false; }
     this.broadCam = null;
     this.volley = null;
     this.ui.hideTitle();
@@ -593,8 +595,17 @@ export class Game {
     if (best) { p.heading = best.h; p.updateAxes(); }
   }
 
-  boardOwnShip() {
+  boardOwnShip(fromBoat = false) {
     this.transition(600, () => {
+      this.seaside && (this.seaside.rowing = false);
+      if (fromBoat) {
+        // straight up the side: she lies where she was, at anchor
+        this.despawnNPCs(true);
+        this.currentTown = null;
+        this.enterSail();
+        this.ui.toast('Aboard. The boat is hoisted in. Weigh anchor [R] and make sail [W].', 'info');
+        return;
+      }
       this.despawnNPCs(true);
       this.currentTown = null;
       this.enterSail();
@@ -671,6 +682,11 @@ export class Game {
     if (this.mode === 'sail') this.updateSailing(dt);
     else if (this.mode === 'foot') this.updateFoot(dt);
     else if (this.mode === 'title') this.updateTitle(dt);
+    if (this.mode !== 'title') {
+      if (!this.seaside) this.seaside = new Seaside(this);
+      this.seaside.placeWrecks();
+      this.seaside.update(dt);
+    }
 
     // ships
     for (const ship of this.ships) {
@@ -1060,14 +1076,8 @@ export class Game {
         return { text: `[F] Dock at ${t.port.name}`, act: () => this.dock(t) };
       }
     }
-    // landing a boat on any beach
-    if (p.speed < 7) {
-      if (!this._landCheckT || this._landCheckT < performance.now()) {
-        this._landCheckT = performance.now() + 400;
-        this._landing = this.terrain.quickHeight(p.position.x, p.position.z) > -35 ? this.terrain.findLanding(p.position.x, p.position.z, 170) : null;
-      }
-      if (this._landing) return { text: '[F] Row ashore', act: () => this.goAshore(this._landing) };
-    }
+    // the jolly boat: row yourself to any beach or cove, or go over the side for a swim
+    if (p.speed < 3 && this.seaside) return { text: '[F] Lower the jolly boat', act: () => this.seaside.lowerBoat() };
     return null;
   }
 
@@ -1489,7 +1499,11 @@ export class Game {
     if (!w) return;
     if (this.boarding) this.boarding.update(dt);
     if (!this.stealth) this.stealth = new Stealth(this);
-    if (!this.stealth.hidden) w.update(dt, this.input, this.camera);
+    if (!this.seaside) this.seaside = new Seaside(this);
+    if (this.seaside.rowing) this.seaside.row(dt, this.input);
+    else if (!this.stealth.hidden) w.update(dt, this.input, this.camera);
+    // over the side from the jolly boat
+    if (this.seaside.rowing && this.input.hit('Space') && !this.seaside.boat.beached) this.seaside.disembark(true);
     w.updateCamera(this.camera, dt);
     this.camera.fov = damp(this.camera.fov, w.aiming ? this.baseFov * 0.75 : this.baseFov, 8, dt);
     this.camera.updateProjectionMatrix();
@@ -1512,6 +1526,9 @@ export class Game {
   footContext() {
     const w = this.walker;
     if (w.dead || this.transitioning || this.boarding) return null;
+    // the jolly boat, your ship's side, sea chests on the bottom
+    const bc = this.seaside?.context();
+    if (bc) return bc;
     // haystacks to hide in, wanted posters to tear down
     const sc = this.stealth?.context();
     if (sc) return sc;
@@ -1553,7 +1570,7 @@ export class Game {
     }
     // return to ship by boat
     const p = this.playerShip;
-    if (!this.currentTown || this.currentTown.berth && Math.hypot(this.currentTown.berth.x - p.position.x, this.currentTown.berth.z - p.position.z) > 50) {
+    if (!this.seaside?.boat?.group.visible && (!this.currentTown || this.currentTown.berth && Math.hypot(this.currentTown.berth.x - p.position.x, this.currentTown.berth.z - p.position.z) > 50)) {
       const dShip = Math.hypot(p.position.x - w.pos.x, p.position.z - w.pos.z);
       const g = this.terrain.height(w.pos.x, w.pos.z);
       if (dShip < 220 && g < 1.4) return { text: '[F] Row back to your ship', f: true, act: () => this.boardOwnShip() };
@@ -1912,6 +1929,7 @@ export class Game {
       hit = true;
       if (n.dead) { this.state.stats.duels++; this.lootBody(n); }
     }
+    if (w.mode === 'swim' && this.seaside?.meleeSharks(w, fwd)) hit = true;
     if (hit) this.audio.thud(w.pos);
     this.combatT = Math.max(this.combatT, 6);
   }

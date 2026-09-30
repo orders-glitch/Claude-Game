@@ -196,6 +196,16 @@ export class Effects {
     }
   }
 
+  // a cloud of blood in the water
+  blood(pos) {
+    for (let i = 0; i < 10; i++) this.smoke.spawn({ x: pos.x + rand(-0.3, 0.3), y: pos.y + rand(-0.3, 0.3), z: pos.z + rand(-0.3, 0.3), vx: rand(-0.6, 0.6), vy: rand(-0.2, 0.3), vz: rand(-0.6, 0.6), life: rand(3, 5), size: 0.4, endSize: rand(1.8, 3), r: 0.35, g: 0.02, b: 0.02, alpha: 0.7, drag: 1.5 });
+  }
+
+  // air bubbles rising from a diver
+  bubbles(pos) {
+    for (let i = 0; i < 4; i++) this.smoke.spawn({ x: pos.x + rand(-0.15, 0.15), y: pos.y, z: pos.z + rand(-0.15, 0.15), vx: rand(-0.2, 0.2), vy: rand(1, 2), vz: rand(-0.2, 0.2), life: rand(1, 2), size: rand(0.05, 0.12), endSize: 0.15, r: 0.85, g: 0.95, b: 1, alpha: 0.8, drag: 0.5 });
+  }
+
   explosion(pos) {
     for (let i = 0; i < 40; i++) this.fire.spawn({ x: pos.x, y: pos.y, z: pos.z, vx: rand(-14, 14), vy: rand(0, 18), vz: rand(-14, 14), life: rand(0.3, 1), size: rand(2, 4), endSize: 0.5, r: 1, g: rand(0.4, 0.7), b: 0.2, drag: 2 });
     for (let i = 0; i < 25; i++) {

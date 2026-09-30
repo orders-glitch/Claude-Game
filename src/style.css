@@ -193,3 +193,11 @@ table.trade button { font-size: 14px; padding: 2px 9px; margin-left: 3px; }
 .stealth-mark.hot { border-color: #ff5a3a; }
 .stealth-mark.hot i { background: #e8412a; }
 .stealth-badge { position: fixed; top: 150px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 5; font: italic 16px Georgia, serif; color: #efe2bd; background: rgba(12,10,8,0.5); padding: 3px 14px; border-radius: 3px; display: none; }
+
+/* under water: a green-blue murk, darker toward the edges; and the breath you have left */
+.underwater { position: fixed; inset: 0; pointer-events: none; z-index: 2; opacity: 0; transition: opacity 0.25s;
+  background: radial-gradient(ellipse at 50% 35%, rgba(40,120,120,0.10), rgba(4,30,40,0.55) 85%); }
+.breath { position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%); width: 220px; height: 10px; border: 1px solid rgba(230,220,190,0.8); background: rgba(10,20,25,0.5); display: none; z-index: 5; pointer-events: none; }
+.breath i { display: block; height: 100%; background: linear-gradient(90deg, #8fd0e0, #d8f4ff); transition: width 0.2s; }
+.breath span { position: absolute; top: -20px; left: 0; right: 0; text-align: center; font: italic 13px Georgia, serif; color: #e8ddc0; }
+.breath.low i { background: #e05a3a; }
