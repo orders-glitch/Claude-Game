@@ -136,12 +136,14 @@ export class UI {
     setTimeout(() => { d.classList.add('out'); setTimeout(() => d.remove(), 450); }, ms);
   }
 
-  hint(text) {
+  // the controls along the bottom of the screen; `sticky` keeps them there (at the helm), otherwise they fade
+  hint(text, sticky = false) {
     const el = $('hint');
     el.innerHTML = text.replace(/\[([^\]]+)\]/g, '<kbd>$1</kbd>');
     el.classList.remove('hidden', 'fade');
+    el.classList.toggle('sticky', sticky);
     clearTimeout(this._hintT);
-    this._hintT = setTimeout(() => el.classList.add('fade'), 14000);
+    if (!sticky) this._hintT = setTimeout(() => el.classList.add('fade'), 14000);
   }
 
   prompt(text) {

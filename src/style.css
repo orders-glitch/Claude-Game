@@ -91,6 +91,7 @@ kbd { font-family: var(--sc); background: #f5ead0; border: 1px solid #8a6e44; bo
 #hint { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 14px; color: #e6d8b6; background: rgba(12,10,8,0.5); padding: 5px 14px; border-radius: 3px; text-align: center; line-height: 1.6; transition: opacity 1.5s; width: max-content; max-width: calc(100vw - 580px); }
 #hint kbd { font-size: 12px; padding: 0 4px; }
 #hint.fade { opacity: 0; }
+#hint.sticky { background: rgba(12,10,8,0.62); font-size: 13px; }
 #minimap-wrap { position: absolute; left: 18px; bottom: 18px; width: 220px; height: 220px; }
 #minimap { width: 220px; height: 220px; border-radius: 50%; box-shadow: 0 0 0 2px #7a5e34, 0 0 0 5px rgba(12,10,8,0.6), 0 6px 20px rgba(0,0,0,0.6); }
 #ship-panel { position: absolute; right: 18px; bottom: 18px; width: 290px; background: var(--hud-bg); border: 1px solid var(--hud-line); border-radius: 4px; padding: 10px 14px; }

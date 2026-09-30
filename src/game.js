@@ -26,6 +26,7 @@ import { Town, buildSalvageCamp } from './world/town.js';
 import { loadTownTextures } from './world/builder.js';
 import { sharedMaterials } from './world/builder.js';
 import { Ship, BALL_SPEED, GRAVITY } from './entities/ship.js';
+import { AMMO } from './game/data.js';
 import { ShipAI } from './entities/shipAI.js';
 import { shipTime, shipMaterials } from './entities/shipModel.js';
 import { Effects } from './entities/effects.js';
@@ -466,7 +467,7 @@ export class Game {
   // ======================================================================== modes
   enterSail() {
     this.mode = 'sail';
-    this.ui.hint('[W]/[S] make or shorten sail · [A]/[D] helm · look to a side and [Left Click] to fire · [1][2][3] shot · [F] dock / board · [M] chart');
+    this.ui.hint('[W]/[S] make / shorten sail · [A]/[D] helm · look off the beam, [Left Click] fire · hold [Right Click] gunnery view (mouse sets range) · [Q]/[E] fire larboard / starboard · [1][2][3] shot · [R] anchor · [F] dock / board · [M] chart', true);
     const p = this.playerShip;
     p.anchored = false;
     this.camYaw = p.heading + 0.35;
@@ -778,21 +779,48 @@ export class Game {
     const spy = inp.mouseDown(2);
     if (Math.abs(m.dx) + Math.abs(m.dy) > 0.0005 || inp.mouseDown(0)) this.camIdle = 0;
     else this.camIdle = (this.camIdle || 0) + dt;
-    if (this.camIdle > 4 && !spy) this.camYaw = dampAngle(this.camYaw, p.heading, 0.5, dt);
-    this.camYaw -= m.dx;
-    this.camPitch = clamp(this.camPitch + m.dy, 0.04, 1.25);
-    if (m.wheel) this.camDist = clamp(this.camDist + m.wheel * 6, 18, 220);
-    // gentle auto-follow when not looking around
-    const cy = Math.cos(this.camPitch), sy = Math.sin(this.camPitch);
-    const back = new THREE.Vector3(Math.sin(this.camYaw) * cy, sy, Math.cos(this.camYaw) * cy);
-    const target = p.position.clone().add(new THREE.Vector3(0, p.model.deckY + 6, 0));
+    // (not while you're looking off the beam at something to shoot at)
+    const lookingAbeam = Math.abs(Math.sin(this.camYaw - p.heading)) > 0.5;
+    if (this.camIdle > 6 && !spy && !(lookingAbeam && this.combatT > 0)) this.camYaw = dampAngle(this.camYaw, p.heading, 0.4, dt);
     let camPos;
     if (spy) {
-      camPos = p.position.clone().add(new THREE.Vector3(0, p.model.deckY + 4, 0)).addScaledVector(p.forward, p.cls.length * 0.2);
-      this.camera.position.copy(camPos);
-      this.camera.lookAt(camPos.x - back.x * 100, camPos.y - back.y * 60 + 6, camPos.z - back.z * 100);
-      this.camera.fov = damp(this.camera.fov, 14, 10, dt);
+      // Gunnery view: the camera rises over the ship and looks down across the engaged broadside, steady (no
+      // pitch or roll of the ship), framing the whole arc of the shot and where it will fall. Mouse up / down
+      // sets the range (the guns' elevation), left / right trains them fore and aft.
+      if (!this.gunnery) {
+        const cf = this.camera.getWorldDirection(new THREE.Vector3());
+        this.gunnery = { side: cf.x * p.right.x + cf.z * p.right.z >= 0 ? 'starboard' : 'port', el: this.aim ? clamp(this.aim.elevation, 0.02, 0.26) : 0.08, yaw: 0, land: null };
+      }
+      const G = this.gunnery;
+      G.el = clamp(G.el - m.dy * 0.35, 0.0, 0.26);
+      G.yaw = clamp(G.yaw - m.dx * 0.8, -0.3, 0.3);
+      const sgn = G.side === 'port' ? -1 : 1;
+      const out = p.right.clone().multiplyScalar(sgn); // toward the engaged side
+      const range = G.land ? Math.max(40, G.land.distanceTo(p.position)) : 120;
+      // look at a point part way out along the line of fire; sit behind and above on the other side
+      // from high on the quarter, so the arc is seen side-on with your own ship at the foot of the view
+      const focus = p.position.clone().addScaledVector(out, range * 0.42).addScaledVector(p.forward, -Math.sin(G.yaw) * range * 0.42);
+      const want = p.position.clone().addScaledVector(out, -(10 + range * 0.3)).addScaledVector(p.forward, -(p.cls.length * 0.6 + range * 0.16));
+      want.y = 20 + range * 0.34;
+      G.cam = G.cam ? G.cam.lerp(want, 1 - Math.exp(-6 * dt)) : want.clone();
+      G.look = G.look ? G.look.lerp(focus, 1 - Math.exp(-6 * dt)) : focus.clone();
+      this.camera.position.copy(G.cam);
+      this.camera.lookAt(G.look);
+      this.camera.fov = damp(this.camera.fov, 55, 6, dt);
+      camPos = G.cam;
     } else {
+      if (this.gunnery) {
+        // coming out of the gunnery view, look back from where it was looking
+        const d = this.gunnery.look.clone().sub(p.position);
+        this.camYaw = Math.atan2(-d.x, -d.z);
+        this.gunnery = null;
+      }
+      this.camYaw -= m.dx;
+      this.camPitch = clamp(this.camPitch + m.dy, 0.04, 1.25);
+      if (m.wheel) this.camDist = clamp(this.camDist + m.wheel * 6, 18, 220);
+      const cy = Math.cos(this.camPitch), sy = Math.sin(this.camPitch);
+      const back = new THREE.Vector3(Math.sin(this.camYaw) * cy, sy, Math.cos(this.camYaw) * cy);
+      const target = p.position.clone().add(new THREE.Vector3(0, p.model.deckY + 6, 0));
       camPos = target.clone().addScaledVector(back, this.camDist);
       const wh = this.ocean.heightAt(camPos.x, camPos.z) + 2.5;
       const th = this.terrain.height(camPos.x, camPos.z) + 3;
@@ -803,22 +831,22 @@ export class Game {
     }
     this.camera.updateProjectionMatrix();
 
-    // broadside aiming: side facing the camera view
+    // broadside aiming: the side the camera looks toward (or the one chosen in the gunnery view)
     const camFwd = this.camera.getWorldDirection(new THREE.Vector3()); camFwd.y = 0; camFwd.normalize();
     const sideDot = camFwd.dot(p.right);
-    const side = sideDot >= 0 ? 'starboard' : 'port';
-    const abeam = Math.abs(sideDot) > 0.45;
+    let side = sideDot >= 0 ? 'starboard' : 'port';
+    let abeam = Math.abs(sideDot) > 0.45;
     const fwdDot = camFwd.dot(p.forward);
-    const sgn = side === 'port' ? -1 : 1;
-    const aimYaw = clamp(Math.atan2(fwdDot, Math.abs(sideDot)), -0.3, 0.3) * sgn;
-    const elevation = spy ? clamp(0.02 + (0.5 - this.camPitch) * 0.35, 0.0, 0.26) : clamp(0.3 - this.camPitch * 0.62, 0.005, 0.26);
+    let aimYaw = clamp(Math.atan2(fwdDot, Math.abs(sideDot)), -0.3, 0.3) * (side === 'port' ? -1 : 1);
+    let elevation = clamp(0.3 - this.camPitch * 0.62, 0.005, 0.26);
+    if (this.gunnery) { side = this.gunnery.side; abeam = true; aimYaw = this.gunnery.yaw * (side === 'port' ? -1 : 1); elevation = this.gunnery.el; }
     this.aim = { side, abeam, elevation, aimYaw };
     const fire = (sd) => {
       const el = sd === side ? elevation : 0.06;
       const yaw = sd === side ? aimYaw : 0;
       if (p.fireBroadside(sd, el, this, yaw)) {
         this.missions.onEvent({ type: 'fired' });
-        this.shakeT = 0.4;
+        this.shakeT = this.gunnery ? 0.15 : 0.4;
         this.combatT = 20;
       } else if (p.reload[sd] > 0) this.ui.toast(`${sd === 'port' ? 'Larboard' : 'Starboard'} guns reloading…`, 'warn', 900);
     };
@@ -826,7 +854,8 @@ export class Game {
     else if (inp.mouseHit(0)) this.ui.toast('Bring the guns to bear — look off the beam', 'warn', 1200);
     if (inp.hit('KeyQ')) fire('port');
     if (inp.hit('KeyE')) fire('starboard');
-    this.updateAimPreview(p, abeam && (inp.mouseDown(0) || spy || this.state.day === 0 && this.state.hours < 9));
+    // the arc of the shot, whenever the guns bear
+    this.updateAimPreview(p, abeam);
 
     // target selection for HUD
     this.targetShip = this.pickTarget(camFwd);
@@ -849,39 +878,89 @@ export class Game {
     }
   }
 
+  // The flight of the broadside: an arc from the guns to where the shot falls, and the patch of water the whole
+  // broadside will land in (as long as the ship's gun deck). Gold when the guns are loaded, grey while they
+  // reload, red when the fall of shot is on another ship.
   updateAimPreview(p, show) {
     if (!this.aimLine) {
       const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(40 * 3), 3));
-      this.aimLine = new THREE.Line(g, new THREE.LineDashedMaterial({ color: 0xffe0a0, dashSize: 3, gapSize: 2, transparent: true, opacity: 0.7, depthWrite: false }));
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(60 * 3), 3));
+      this.aimLine = new THREE.Line(g, new THREE.LineDashedMaterial({ color: 0xffe0a0, dashSize: 3, gapSize: 2, transparent: true, opacity: 0.8, depthWrite: false, depthTest: false }));
       this.aimLine.frustumCulled = false;
+      this.aimLine.renderOrder = 10;
       this.scene.add(this.aimLine);
-      this.aimRing = new THREE.Mesh(new THREE.RingGeometry(3, 4, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd080, transparent: true, opacity: 0.6, depthWrite: false }));
-      this.scene.add(this.aimRing);
+      // the fall of shot: an ellipse on the water as long as the broadside
+      this.aimRing = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd080, transparent: true, opacity: 0.7, depthWrite: false, depthTest: false }));
+      this.aimFill = new THREE.Mesh(new THREE.CircleGeometry(0.82, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd080, transparent: true, opacity: 0.14, depthWrite: false, depthTest: false }));
+      this.aimRing.renderOrder = this.aimFill.renderOrder = 10;
+      this.scene.add(this.aimRing, this.aimFill);
+      // bright shot markers along the flight, easy to read from high up
+      this.aimDots = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffe0a0, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false }), 30);
+      this.aimDots.frustumCulled = false; this.aimDots.renderOrder = 11;
+      this.scene.add(this.aimDots);
     }
-    this.aimLine.visible = this.aimRing.visible = show;
+    this.aimLine.visible = this.aimRing.visible = this.aimFill.visible = this.aimDots.visible = show;
     if (!show) return;
     const a = this.aim;
     const s = a.side === 'port' ? -1 : 1;
     const dirLocal = new THREE.Vector3(s * Math.cos(a.aimYaw), 0, -Math.sin(a.aimYaw) * s);
     const d = dirLocal.applyAxisAngle(new THREE.Vector3(0, 1, 0), p.heading);
-    const v = BALL_SPEED * p.gunRange;
+    // the same muzzle velocity the guns will use with the shot that's loaded
+    const v = BALL_SPEED * (0.75 + 0.25 * AMMO[p.ammo].range) * p.gunRange;
     const start = p.position.clone().add(new THREE.Vector3(0, p.model.deckY * 0.8, 0)).addScaledVector(d, p.cls.beam * 0.6);
     const vel = new THREE.Vector3(d.x * Math.cos(a.elevation), Math.sin(a.elevation), d.z * Math.cos(a.elevation)).multiplyScalar(v);
     vel.x += p.velocity?.x || 0; vel.z += p.velocity?.z || 0;
     const pos = this.aimLine.geometry.attributes.position;
     const P = start.clone();
-    let landed = P.clone();
-    for (let i = 0; i < 40; i++) {
-      pos.setXYZ(i, P.x, P.y, P.z);
-      if (P.y > -1) landed.copy(P);
+    const landed = P.clone();
+    let n = 0;
+    for (; n < 60; n++) {
+      pos.setXYZ(n, P.x, P.y, P.z);
+      if (P.y < 0 && n > 0) { landed.copy(P); break; }
       for (let k = 0; k < 4; k++) { vel.y -= GRAVITY * 0.025; P.addScaledVector(vel, 0.025); }
-      if (P.y < 0) { for (let j = i + 1; j < 40; j++) pos.setXYZ(j, P.x, 0, P.z); landed.copy(P); break; }
+      landed.copy(P);
     }
+    for (let j = n + 1; j < 60; j++) pos.setXYZ(j, landed.x, 0, landed.z);
     pos.needsUpdate = true;
+    // markers every so often along the arc, sized to stay visible at a distance
+    {
+      const mm = new THREE.Matrix4(), q = new THREE.Vector3(), cam = this.camera.position;
+      let k = 0;
+      for (let i = 1; i <= n && k < 30; i += 2, k++) {
+        q.fromBufferAttribute(pos, i);
+        const r = 0.25 + q.distanceTo(cam) * 0.004;
+        mm.makeScale(r, r, r).setPosition(q);
+        this.aimDots.setMatrixAt(k, mm);
+      }
+      this.aimDots.count = k;
+      this.aimDots.instanceMatrix.needsUpdate = true;
+    }
     this.aimLine.computeLineDistances();
-    this.aimRing.position.set(landed.x, this.ocean.heightAt(landed.x, landed.z) + 0.3, landed.z);
+    const wy = this.ocean.heightAt(landed.x, landed.z) + 0.3;
+    // spread: the length of the gun deck along the ship, a little either side for the roll and the powder
+    const len = p.cls.length * 0.5 + 4, wid = 5 + landed.distanceTo(p.position) * 0.04;
+    for (const m of [this.aimRing, this.aimFill]) {
+      m.position.set(landed.x, wy, landed.z);
+      m.rotation.y = p.heading;
+      m.scale.set(wid, 1, len);
+    }
+    if (this.gunnery) this.gunnery.land = landed.clone().setY(0);
+    // colour: loaded / reloading / on target
+    const loaded = !(p.reload[a.side] > 0);
+    let onTarget = false;
+    for (const sh of this.ships) {
+      if (sh === p || !sh.alive) continue;
+      const dx = sh.position.x - landed.x, dz = sh.position.z - landed.z;
+      if (dx * dx + dz * dz < (sh.cls.length * 0.5 + len * 0.5) ** 2) { onTarget = true; break; }
+    }
+    const col = !loaded ? 0x9a9a9a : onTarget ? 0xff5a3a : 0xffd080;
+    this.aimLine.material.color.setHex(!loaded ? 0xb0b0b0 : onTarget ? 0xff8a6a : 0xffe0a0);
+    this.aimDots.material.color.setHex(!loaded ? 0xb0b0b0 : onTarget ? 0xff8a6a : 0xffe0a0);
+    this.aimRing.material.color.setHex(col); this.aimFill.material.color.setHex(col);
+    this.aimLine.material.opacity = this.gunnery ? 0.95 : 0.6;
+    this.aimFill.material.opacity = this.gunnery ? 0.2 : 0.1;
   }
+
 
   pickTarget(camFwd) {
     const p = this.playerShip;
