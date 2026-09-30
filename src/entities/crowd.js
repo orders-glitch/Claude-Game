@@ -294,7 +294,7 @@ function crowdMaterial(v) {
         vec3 c = bcol;
         float l = dot(c, vec3(0.299, 0.587, 0.114));
         if (bflag < 0.5) {}
-        else if (bflag < 1.5) c = iCoat * clamp(l * 2.6, 0.35, 1.5);
+        else if (bflag < 1.5) c = iCoat * clamp(l * 2.2, 0.3, 1.0 + (1.0 - dot(iCoat, vec3(0.33))) * 0.4);
         else if (bflag < 2.5) c = c * iSkin / max(uSkinAvg, vec3(0.02));
         else if (bflag < 3.5) c = iHair * clamp(l * 3.0, 0.4, 1.6);
         else if (bflag < 4.5) c = c * iLinen;

@@ -158,6 +158,8 @@ export class Game {
 
     await step(0.65, 'Filling the oceans…');
     this.ocean = new Ocean(scene, this.terrain, q);
+    this.ocean.windFn = (x, z) => this.weather.windAt(x, z, this.terrain);
+    this.ocean.windBase = () => this.weather.wind.strength;
     this.harbour = new Harbour(scene, this.townList, this.terrain);
     this.harbour.addBoats(scene, this.townList, this.terrain);
     animals.init(scene, this);

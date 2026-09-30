@@ -15,6 +15,8 @@ const WAVE_DEFS = [
   { a: 0.25, L: 7.5, A: 0.06, Q: 0.45 },
 ];
 
+const GUST_N = 64, GUST_SPAN = 2000; // gust texture: 64 x 64 cells over 2 km
+
 export class Ocean {
   constructor(scene, terrain, quality = 'high') {
     this.terrain = terrain;
@@ -48,7 +50,19 @@ export class Ocean {
       uShallow: { value: new THREE.Color('#2fc4c0') },
       uSandy: { value: new THREE.Color('#58d6c8') },
       uRain: { value: 0 },
+      uGustTex: { value: null },
+      uGustOrigin: { value: new THREE.Vector2() },
+      uGustSize: { value: GUST_SPAN },
     };
+    // Gusts on the water: the same wind field the ships sail in (weather.windAt), sampled around the camera
+    // into a small texture a few rows per frame. Ruffled dark patches where it blows harder, glassy lulls.
+    this.gustData = new Uint8Array(GUST_N * GUST_N * 4).fill(128);
+    this.gustTex = new THREE.DataTexture(this.gustData, GUST_N, GUST_N, THREE.RGBAFormat);
+    this.gustTex.magFilter = this.gustTex.minFilter = THREE.LinearFilter;
+    this.gustTex.needsUpdate = true;
+    this.uniforms.uGustTex.value = this.gustTex;
+    this.gustRow = 0;
+    this.windFn = null;
     const N = quality === 'low' ? 256 : quality === 'medium' ? 384 : 512;
     this.spacing = (16000 * 0.04 * 2) / N;
     const geo = buildOceanGeometry(N, 16000);
@@ -81,7 +95,36 @@ export class Ocean {
     u.uZenith.value.copy(sky.zenithColor);
     u.uFogColor.value.copy(fog.color);
     u.uFogDensity.value = fog.density;
+    this.updateGusts(camera.position);
   }
+
+  updateGusts(cam) {
+    if (!this.windFn) return;
+    const cell = GUST_SPAN / GUST_N;
+    // a new window when the camera has moved a quarter of the way across: refill from the top
+    const ox = Math.floor((cam.x - GUST_SPAN / 2) / cell) * cell, oz = Math.floor((cam.z - GUST_SPAN / 2) / cell) * cell;
+    const O = this.uniforms.uGustOrigin.value;
+    if (!this.gustInit || Math.abs(ox - this.pendingO.x) > GUST_SPAN / 4 || Math.abs(oz - this.pendingO.y) > GUST_SPAN / 4) {
+      this.pendingO = new THREE.Vector2(ox, oz);
+      this.gustRow = 0;
+      if (!this.gustInit) { O.copy(this.pendingO); this.gustInit = true; }
+    }
+    const P = this.pendingO;
+    const base = Math.max(0.05, this.windFn(P.x + GUST_SPAN * 0.5 + 5000, P.y).strength || 0.9); // reference, far from land
+    const rows = 8;
+    for (let r = 0; r < rows && this.gustRow < GUST_N; r++, this.gustRow++) {
+      const j = this.gustRow;
+      for (let i = 0; i < GUST_N; i++) {
+        const w = this.windFn(P.x + (i + 0.5) * cell, P.y + (j + 0.5) * cell);
+        const g = w.strength / this.baseWind(base) - 1; // about -1 (dead calm in a lee) .. +0.4 (hard gust)
+        this.gustData[(j * GUST_N + i) * 4] = Math.max(0, Math.min(255, 128 + g * 520));
+      }
+    }
+    if (this.gustRow >= GUST_N) { O.copy(P); this.gustTex.needsUpdate = true; this.gustRow = 0; }
+  }
+
+  // the unperturbed wind strength (the weather's own), so the texture shows only gusts, lulls and lee
+  baseWind(fallback) { return this.windBase ? this.windBase() : fallback; }
 
   // Gerstner displacement at an undisplaced grid position.
   displacement(x, z, out) {
@@ -214,6 +257,9 @@ uniform vec3 uMid;
 uniform vec3 uShallow;
 uniform vec3 uSandy;
 uniform float uRain;
+uniform sampler2D uGustTex;
+uniform vec2 uGustOrigin;
+uniform float uGustSize;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vHeight;
@@ -230,6 +276,12 @@ void main() {
   float dist = length(toCam);
   vec3 V = toCam / dist;
 
+  // gusts and lulls from the wind field around the camera (faded out toward the edge of the sampled window)
+  vec2 guv = (vWorld.xz - uGustOrigin) / uGustSize;
+  float gEdge = 1.0 - smoothstep(0.38, 0.5, max(abs(guv.x - 0.5), abs(guv.y - 0.5)));
+  float gust = (texture2D(uGustTex, guv).r - 0.5) * 2.0 * gEdge; // + ruffled, - calm
+  float ruffle = max(gust, 0.0), calm = max(-gust, 0.0);
+
   // detail normals (two scrolling octaves + rain ripples)
   vec2 uv = vWorld.xz;
   float detailFade = 1.0 - smoothstep(150.0, 1400.0, dist);
@@ -240,6 +292,9 @@ void main() {
   vec2 dn = (n2.xy * 0.45 + n3.xy * (0.12 + uRain * 0.9) * (1.0 - smoothstep(40.0, 400.0, dist))) * detailFade
           + n1.xy * 0.55 * max(detailFade, farFade * 0.8);
   dn *= 0.35 + 0.25 * uSea;
+  // cat's paws: the small ripples thicken where a gust strikes and die away in the lulls
+  dn += n3.xy * ruffle * 0.55 * (1.0 - smoothstep(60.0, 900.0, dist)) + n2.xy * ruffle * 0.3 * detailFade;
+  dn *= 1.0 - calm * 0.6;
   vec3 N = normalize(vNormal + vec3(dn.x, 0.0, dn.y));
 
   // bathymetry from the baked terrain heightmap
@@ -271,7 +326,9 @@ void main() {
   vec3 refl = skyColor(R);
   float fres = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
   fres = mix(fres, fres * 0.5, veryShallow);
+  fres = mix(fres, min(1.0, fres * 1.3 + 0.015), calm);
   vec3 col = mix(lit, refl * 0.82, fres * 0.8);
+  col *= 1.0 - ruffle * 0.28; // ruffled water reflects less sky and reads darker
 
   // sun glitter
   vec3 H = normalize(L + V);
@@ -284,6 +341,7 @@ void main() {
   float foamNoise = fA.g * 0.6 + fB.r * 0.6;
   float crest = smoothstep(1.3, 2.0, vHeight / max(uSea, 0.35) + foamNoise * 0.9 - 0.3) * vFade * (0.35 + 0.65 * fB.g);
   crest *= smoothstep(0.9, 1.7, uSea) * 0.8 + 0.12;
+  crest += smoothstep(0.35, 0.9, ruffle) * smoothstep(0.6, 1.0, fB.g + fA.r * 0.4) * 0.35 * vFade; // whitecaps in the hard gusts
   float shoreBand = veryShallow * (1.0 - smoothstep(-0.2, 0.6, ground - vHeight + 0.4));
   float surf = shoreBand * smoothstep(0.35, 0.7, fract(depth * 0.35 - uTime * 0.25 + foamNoise * 0.6)) ;
   surf += (1.0 - smoothstep(0.0, 0.9, depth)) * 0.9;
