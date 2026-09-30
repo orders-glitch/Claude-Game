@@ -5,7 +5,7 @@
 // writes a compact GLB. Credits (author, licence, URL) are appended to CREDITS.md next to the output.
 import { NodeIO, getBounds } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { prune, dedup, weld, simplify, textureCompress, flatten, quantize, join } from '@gltf-transform/functions';
+import { prune, dedup, weld, simplify, textureCompress, flatten, quantize, join, metalRough } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
 import fs from 'node:fs';
@@ -42,7 +42,7 @@ if (cmd === 'search') {
   const tris = () => doc.getRoot().listMeshes().flatMap((m) => m.listPrimitives()).reduce((s, p) => s + (p.getIndices()?.getCount() ?? p.getAttribute('POSITION').getCount()) / 3, 0);
   const before = tris();
   await MeshoptSimplifier.ready;
-  await doc.transform(flatten(), dedup(), join({ keepNamed: false }), weld({}));
+  await doc.transform(metalRough(), flatten(), dedup(), join({ keepNamed: false }), weld({}));
   const target = +opt('tris', 20000);
   for (const error of [0.005, 0.02, 0.06, 0.15]) {
     const now = tris();

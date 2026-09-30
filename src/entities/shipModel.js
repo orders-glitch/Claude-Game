@@ -1,6 +1,7 @@
 // Procedural period sailing ships: lofted hull with gunports, decks, castles, masts, yards, rigging,
 // animated square & fore-and-aft sails (with bracing, furling and battle damage), flags and crew.
 import * as THREE from 'three';
+import { shipLibrary } from './shipLibrary.js';
 import { Builder, T } from '../world/builder.js';
 import { woodTexture, canvasSailTexture, flagTexture } from '../core/textures.js';
 import { lerp, smoothstep } from '../core/noise.js';
@@ -23,6 +24,35 @@ function materials() {
   };
   return MATS;
 }
+// A detailed ship model (see shipLibrary.js) wearing the game's flags, guns positions and sail controls
+function buildScannedShip(cls, nation, opts) {
+  const S = shipLibrary.create(cls.id, cls.length, opts.sailTint || (nation.id === 'pirate' ? '#d6c9a8' : '#ece4cf'));
+  const group = S.group;
+  const deckY = S.cfg.deck * S.scale, draft = S.cfg.draft * S.scale;
+  const L = cls.length, beam = cls.beam;
+  const perSide = Math.max(1, Math.floor(cls.guns / 2));
+  const gunPositions = [];
+  for (let i = 0; i < perSide; i++) {
+    const z = L * (0.28 - (i / Math.max(1, perSide - 1)) * 0.5);
+    for (const sd of [-1, 1]) gunPositions.push(new THREE.Vector3(sd * beam * 0.55, deckY + 0.4, z));
+  }
+  const ensignKind = opts.flag || nation.flag;
+  const fsize = Math.max(2.5, L * 0.12);
+  const ensign = new THREE.Mesh(new THREE.PlaneGeometry(fsize * 1.6, fsize, 10, 4).translate(fsize * 0.8, 0, 0), flagMaterial(ensignKind));
+  ensign.rotation.y = Math.PI / 2;
+  ensign.position.set(0, deckY + 4.5, S.box.max.z - 0.3);
+  group.add(ensign);
+  const masthead = new THREE.Mesh(new THREE.PlaneGeometry(fsize * 1.3, fsize * 0.8, 10, 4).translate(fsize * 0.65, 0, 0), flagMaterial(ensignKind));
+  masthead.rotation.y = Math.PI / 2;
+  masthead.position.set(0, S.box.max.y + 0.6, (S.box.min.z + S.box.max.z) * 0.08);
+  group.add(masthead);
+  return {
+    group, sails: S.sails, sailUniforms: S.uniforms, gunPositions, lanterns: [], mastTops: [masthead.position.clone()], bsTip: new THREE.Vector3(0, deckY, S.box.min.z),
+    ensign, masthead, draft, deckY, sheer: () => deckY, length: L, beam, scanned: true,
+    setFlag(kind) { ensign.material = flagMaterial(kind); masthead.material = flagMaterial(kind); },
+  };
+}
+
 export function shipMaterials() { return materials(); }
 
 function sailMaterial(tint) {
@@ -273,6 +303,7 @@ function crewFigure(B, x, y, z, ry, coat, rnd) {
 
 // Build a ship visual. Returns an object with the group and handles for animation.
 export function buildShipModel(cls, nation, opts = {}) {
+  if (!opts.procedural && shipLibrary.has(cls.id)) return buildScannedShip(cls, nation, opts);
   const M = materials();
   const B = new Builder();
   const colors = { hull: opts.hullColor || nation.hull, stripe: opts.stripeColor || nation.stripe };

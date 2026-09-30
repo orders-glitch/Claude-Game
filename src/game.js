@@ -30,6 +30,7 @@ import { modelLibrary } from './entities/modelLibrary.js';
 import { humans } from './entities/humans.js';
 import { props } from './world/props.js';
 import { weapons } from './entities/weapons.js';
+import { shipLibrary } from './entities/shipLibrary.js';
 import { flora, TREE_TYPES } from './world/flora.js';
 import { loadTerrainTextures } from './world/terrainMaterial.js';
 import { TerrainDetail } from './world/terrain.js';
@@ -120,7 +121,7 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(this.state.settings.fov, window.innerWidth / window.innerHeight, 0.3, 24000);
 
     await step(0.1, 'Stowing the cargo…');
-    await Promise.all([props.load(), weapons.load(), loadTerrainTextures(), flora.load([...TREE_TYPES, 'pachira_aquatica_01', 'calathea_orbifolia_01', 'anthurium_botany_01'])]);
+    await Promise.all([props.load(), weapons.load(), shipLibrary.load(), loadTerrainTextures(), flora.load([...TREE_TYPES, 'pachira_aquatica_01', 'calathea_orbifolia_01', 'anthurium_botany_01'])]);
     flora.bakeImpostors(renderer);
     this.flora = flora;
     this.weapons = weapons;
