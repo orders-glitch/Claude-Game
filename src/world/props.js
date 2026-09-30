@@ -9,6 +9,7 @@ const FILES = [
   'wine_barrel_01', 'wooden_crate_01', 'wooden_crate_02', 'old_military_crate', 'wooden_bucket_01',
   'wooden_lantern_01', 'treasure_chest', 'cannon_01', 'jug_01', 'wicker_basket_01', 'lambis_shell', 'fern_02',
   'shrub_sorrel_01', 'tree_stump_01', 'coast_rocks_01', 'wooden_ladder', 'wooden_handle_saber', 'machete', 'hatchet',
+  'rowboat', 'canoe',
 ];
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _p = new THREE.Vector3();

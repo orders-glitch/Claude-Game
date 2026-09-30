@@ -236,21 +236,14 @@ class Flora {
     return im;
   }
 
-  // Real meshes for the trees close to the camera, refilled as the camera moves
-  initNear(scene, all, shadows) {
-    this.all = all; // name -> [[x,y,z,ry,sc]]
+  // Real meshes for the trees close to the camera, refilled as the camera moves. Trees arrive and leave with
+  // the vegetation chunks (700 m, exactly 10 x 10 grid cells) via addTrees / removeTrees.
+  initNear(scene, names, shadows) {
     this.near = {};
     this.grid = {};
-    const G = 64;
-    this.cellSize = G;
-    for (const [name, list] of Object.entries(all)) {
-      const grid = new Map();
-      for (const t of list) {
-        const k = Math.floor(t[0] / G) + ',' + Math.floor(t[2] / G);
-        if (!grid.has(k)) grid.set(k, []);
-        grid.get(k).push(t);
-      }
-      this.grid[name] = grid;
+    this.cellSize = 70;
+    for (const name of names) {
+      this.grid[name] = new Map();
       const cap = 160;
       this.near[name] = this.types[name].parts.map((p) => {
         const im = new THREE.InstancedMesh(p.geometry, p.material, cap);
@@ -263,6 +256,28 @@ class Flora {
       });
     }
     this.lastRefill = new THREE.Vector3(1e9, 0, 1e9);
+  }
+
+  addTrees(chunkKey, name, list) {
+    const grid = this.grid?.[name];
+    if (!grid) return;
+    const G = this.cellSize;
+    for (const t of list) {
+      const k = Math.floor(t[0] / G) + ',' + Math.floor(t[2] / G);
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(t);
+    }
+    this.lastRefill.set(1e9, 0, 1e9);
+  }
+
+  removeTrees(chunkKey) {
+    if (!this.grid) return;
+    const [ci, cj] = chunkKey.split(',').map(Number);
+    const n = Math.round(700 / this.cellSize);
+    for (const grid of Object.values(this.grid)) {
+      for (let i = ci * n; i < ci * n + n; i++) for (let j = cj * n; j < cj * n + n; j++) grid.delete(i + ',' + j);
+    }
+    this.lastRefill.set(1e9, 0, 1e9);
   }
 
   update(camPos, sky) {

@@ -1,9 +1,14 @@
 // Story campaign — "The Silver of the Plate Fleet" (Nassau, 1716) — plus tavern contracts & treasure maps.
 import * as THREE from 'three';
-import { ISLANDS, PORTS, SALVAGE_CAMP, GOODS, NATIONS, SHIP_NAMES } from './data.js';
+import { ISLANDS, PORTS, SALVAGE_CAMP, GOODS, NATIONS, SHIP_NAMES, at } from './data.js';
 import { pick, rand, randInt } from '../core/noise.js';
 
 const V = (x, z) => new THREE.Vector3(x, 0, z);
+const G = (lon, lat, dx, dz) => { const [x, z] = at(lon, lat, dx, dz); return V(x, z); };
+// the western mouth of Nassau harbour, past the end of Hog Island
+const G2 = (lon, lat) => { const [x, z] = at(lon, lat); return { x, z }; };
+const HARBOUR_MOUTH = G(-77.345, 25.078, -470, -70);
+const NORTH_OF_NASSAU = G(-77.32, 25.42);
 
 export function buildStory(game) {
   const S = game.state;
@@ -15,7 +20,7 @@ export function buildStory(game) {
       stages: [
         { text: 'Meet Captain Hornigold at the Council of Captains', marker: () => nassau().doors.find((d) => d.type === 'governor').pos, onEvent: (e) => e.type === 'interact' && e.door.type === 'governor' && e.port === 'nassau', dialog: true },
         { text: 'Board the Ranger at the Nassau pier  [F]', marker: () => nassau().pierEnd, onEvent: (e) => e.type === 'board' },
-        { text: 'Raise sail [W] and clear the harbour past Hog Island', marker: () => V(1850, -5420), check: () => game.playerShip && game.playerShip.position.distanceTo(V(1850, -5420)) < 170 },
+        { text: 'Raise sail [W] and clear the harbour past Hog Island', marker: () => HARBOUR_MOUTH, check: () => game.playerShip && game.playerShip.position.distanceTo(HARBOUR_MOUTH) < 120 },
         { text: 'Test the guns: fire a broadside  [Left Mouse] or [Q]/[E]', onEvent: (e) => e.type === 'fired' },
       ],
       reward: { gold: 150, renown: 2 },
@@ -30,7 +35,7 @@ export function buildStory(game) {
         {
           text: 'Hunt down the Dutch fluyt "Goede Verwachting" near Andros',
           onStart: () => {
-            const s = game.spawnShip('fluyt', 'dutch', { role: 'merchant', name: 'Goede Verwachting', x: 700, z: -5350, heading: -Math.PI / 2, mission: true, cargo: { cloth: 30, rum: 25, powder: 10 }, gold: 450, crewFrac: 0.7, dest: { x: 3800, z: -6200 } });
+            const s = game.spawnShip('fluyt', 'dutch', { role: 'merchant', name: 'Goede Verwachting', ...G2(-77.75, 25.42), heading: -Math.PI / 2, mission: true, cargo: { cloth: 30, rum: 25, powder: 10 }, gold: 450, crewFrac: 0.7, dest: G2(-76.75, 25.85) });
             game.missionTarget = s;
           },
           marker: () => game.missionTarget?.position,
@@ -98,7 +103,7 @@ export function buildStory(game) {
           onStart: () => {
             const h = game.towns.havana;
             const bx = h.berth.x, bz = h.berth.z;
-            const g = game.spawnShip('galleon', 'spain', { role: 'merchant', name: 'Nuestra Señora del Carmen', x: bx + 300, z: bz - 600, heading: Math.PI / 2, mission: true, gold: 6000, cargo: { silver: 60, tobacco: 20 }, crewFrac: 0.8, dest: { x: -5600, z: -3300 }, courage: 0.9, aggressive: true });
+            const g = game.spawnShip('galleon', 'spain', { role: 'merchant', name: 'Nuestra Señora del Carmen', x: bx + 300, z: bz - 600, heading: Math.PI / 2, mission: true, gold: 6000, cargo: { silver: 60, tobacco: 20 }, crewFrac: 0.8, dest: G2(-84.6, 23.3), courage: 0.9, aggressive: true });
             const e = game.spawnShip('frigate', 'spain', { role: 'navy', name: 'Santa Rita', x: bx + 380, z: bz - 520, heading: Math.PI / 2, mission: true, escortOf: g });
             game.missionTarget = g;
             game.missionEscort = e;
@@ -117,12 +122,12 @@ export function buildStory(game) {
       giver: { port: 'nassau', door: 'governor' },
       stages: [
         { text: 'Visit the Council of Captains in Nassau', marker: () => nassau().doors.find((d) => d.type === 'governor').pos, onEvent: (e) => e.type === 'interact' && e.door.type === 'governor' && e.port === 'nassau', dialog: true },
-        { text: 'Put to sea and meet HMS Scarborough north of Nassau', marker: () => V(2200, -6300), check: () => game.playerShip && game.mode === 'sail' && game.playerShip.position.distanceTo(V(2200, -6300)) < 900 },
+        { text: 'Put to sea and meet HMS Scarborough north of Nassau', marker: () => NORTH_OF_NASSAU, check: () => game.playerShip && game.mode === 'sail' && game.playerShip.position.distanceTo(NORTH_OF_NASSAU) < 600 },
         {
           text: 'Defeat HMS Scarborough',
           onStart: () => {
-            const m = game.spawnShip('manowar', 'britain', { role: 'hunter', name: 'HMS Scarborough', x: 2600, z: -6900, heading: Math.PI * 0.9, mission: true, aggroPlayer: true, strength: 1.0 });
-            game.spawnShip('sloop', 'britain', { role: 'hunter', name: 'HMS Shark', x: 2300, z: -7000, heading: Math.PI, mission: true, aggroPlayer: true, escortOf: m });
+            const m = game.spawnShip('manowar', 'britain', { role: 'hunter', name: 'HMS Scarborough', ...G2(-77.2, 25.68), heading: Math.PI * 0.9, mission: true, aggroPlayer: true, strength: 1.0 });
+            game.spawnShip('sloop', 'britain', { role: 'hunter', name: 'HMS Shark', ...G2(-77.28, 25.7), heading: Math.PI, mission: true, aggroPlayer: true, escortOf: m });
             game.missionTarget = m;
           },
           marker: () => game.missionTarget?.position,

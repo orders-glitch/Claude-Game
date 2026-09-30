@@ -16,6 +16,7 @@ import { Ocean } from './world/ocean.js';
 import { SkySystem } from './world/sky.js';
 import { Weather } from './world/weather.js';
 import { Vegetation } from './world/vegetation.js';
+import { Crowd } from './entities/crowd.js';
 import { Grass } from './world/grass.js';
 import { Harbour } from './world/harbour.js';
 import { animals } from './world/animals.js';
@@ -37,7 +38,7 @@ import { shipLibrary } from './entities/shipLibrary.js';
 import { flora, TREE_TYPES, PALM_TYPES } from './world/flora.js';
 import { loadTerrainTextures } from './world/terrainMaterial.js';
 import { TerrainDetail } from './world/terrain.js';
-import { ISLANDS, PORTS, NATIONS, SHIP_CLASSES, SHIP_NAMES, GOODS, SALVAGE_CAMP, MONTHS } from './game/data.js';
+import { ISLANDS, PORTS, NATIONS, SHIP_CLASSES, SHIP_NAMES, GOODS, SALVAGE_CAMP, MONTHS, at } from './game/data.js';
 import { GameState } from './game/state.js';
 import { Missions } from './game/missions.js';
 import { UI } from './ui/ui.js';
@@ -158,6 +159,7 @@ export class Game {
     await step(0.65, 'Filling the oceans…');
     this.ocean = new Ocean(scene, this.terrain, q);
     this.harbour = new Harbour(scene, this.townList, this.terrain);
+    this.harbour.addBoats(scene, this.townList, this.terrain);
     animals.init(scene, this);
     this.animals = animals;
     this.shipBlockers.push(...this.harbour.blockers);
@@ -166,22 +168,25 @@ export class Game {
     this.wind = this.weather.wind;
 
     await step(0.75, 'Planting palms…');
-    const avoid = (x, z) => {
+    const avoid = (x, z, ground = true) => {
       for (const t of this.townList) {
-        if (Math.hypot(x - t.center.x, z - t.center.z) < t.R * 1.35) return true;
+        if (Math.abs(x - t.center.x) < t.R * 1.6 && Math.abs(z - t.center.z) < t.R * 1.6 && t.inTown(x, z, ground)) return true;
       }
       if (Math.hypot(x - camp.center.x, z - camp.center.z) < 70) return true;
       return false;
     };
     this.vegetation = new Vegetation(scene, this.terrain, avoid, q);
     this.wildlife = new Wildlife(scene, this.terrain);
-    this.grass = new Grass(scene, this.terrain, null, q);
+    this.grass = new Grass(scene, this.terrain, avoid, q);
     this.props = props;
     props.flush(scene, { shadows: q !== 'low', viewDist: q === 'low' ? 500 : 900 });
 
     await step(0.8, 'Mustering the crew…');
     await Promise.all([modelLibrary.load(), humans.load()]);
     this.humans = humans;
+    await step(0.83, 'Filling the streets…');
+    this.crowd = new Crowd(scene, q);
+    try { await this.crowd.bake(); } catch (e) { console.warn('crowd bake failed', e); this.crowd = null; }
     await step(0.85, 'Casting cannon…');
     this.effects = new Effects(scene, this.ocean);
     this.projectiles = new Projectiles(scene);
@@ -258,7 +263,7 @@ export class Game {
     const s = this.spawnShip('brigantine', 'pirate', { role: 'pirate', name: 'Revenge', x: n.coast.x + 350, z: n.coast.z - 420, heading: -Math.PI / 2 + 0.3, patrol: true });
     s.ai.patrolR = 400;
     this.titleShip = s;
-    this.spawnShip('fluyt', 'britain', { role: 'merchant', name: 'Mary Anne', x: n.coast.x - 300, z: n.coast.z - 700, heading: 1.2, dest: { x: 3000, z: -6000 } });
+    this.spawnShip('fluyt', 'britain', { role: 'merchant', name: 'Mary Anne', x: n.coast.x - 300, z: n.coast.z - 700, heading: 1.2, dest: { x: at(-76.7, 25.8)[0], z: at(-76.7, 25.8)[1] } });
     this.titleT = 0;
   }
 
@@ -583,6 +588,13 @@ export class Game {
     sharedMaterials().windowLit.emissiveIntensity = night * 2.2;
     shipMaterials().window.emissiveIntensity = night * 2.5;
     for (const t of this.townList) if (t.group && t.center.distanceTo(this.camera.position) < 2500) t.update(dt, shipTime.value, night);
+    // cook fires, boucans and chimneys smoking in the town you're in
+    const cp = this.camera.position;
+    for (const t of this.townList) {
+      if (!t.group || t.center.distanceTo(cp) > 900) continue;
+      for (const f of t.fires) if (f.distanceToSquared(cp) < 300 * 300) this.effects.hearth(f, dt, true);
+      for (const f of t.chimneys) if (f.distanceToSquared(cp) < 400 * 400) this.effects.hearth(f, dt * 0.6, false);
+    }
     props.setNight(night);
 
     // input-driven modes
@@ -616,6 +628,12 @@ export class Game {
     if (this.camera.position.y - this.terrain.height(this.camera.position.x, this.camera.position.z) < 60) this.grass.update(this.camera.position);
     this.terrainDetail.update(this.camera.position);
     this.wildlife.update(dt, this.focus, this.sky.nightFactor + this.sky.storm * 0.8);
+    if (this.crowd) {
+      const cp = this.camera.position;
+      const ct = this.townList.find((t) => t.center.distanceTo(cp) < t.R * 2.6) || null;
+      this.crowd.setTown(ct, this);
+      this.crowd.update(dt, cp, this.mode === 'foot' && this.walker ? this.walker.pos : null, this.state.hours);
+    }
     if (this.mode !== 'title') {
       this.updateNotoriety(dt);
       this.fillTraffic(false);
@@ -1460,14 +1478,44 @@ export class Game {
       this.despawnNPCs(true);
       this.npcTown = null;
     }
+    if (town && this.npcTown === town && (this._recycleF = (this._recycleF || 0) + 1) % 20 === 0) this.recycleNPCs(town, focus);
+  }
+
+  // Keep the streets around the player busy in a big town: townsfolk who have wandered far off are moved to
+  // street corners out of sight behind the player.
+  recycleNPCs(town, focus) {
+    const cam = this.camera.position, fwd = new THREE.Vector3();
+    this.camera.getWorldDirection(fwd);
+    let moved = 0;
+    for (const n of this.npcs) {
+      if (moved >= 2) break;
+      if (n.town !== town || n.dead || n.spot || n.alert || (n.kind !== 'civilian' && n.kind !== 'pirate')) continue;
+      if (n.pos.distanceTo(focus) < 120) continue;
+      const cands = town.streetNodes.filter((p) => {
+        const d = p.distanceTo(focus);
+        if (d < 35 || d > 100) return false;
+        const v = p.clone().sub(cam);
+        return v.dot(fwd) < 0 || d > 75; // behind the camera, or far enough to fade in unnoticed
+      });
+      if (!cands.length) return;
+      const p = pick(cands);
+      n.pos.set(p.x + rand(-1.5, 1.5), p.y, p.z + rand(-1.5, 1.5));
+      n.home.copy(n.pos);
+      n.target = null;
+      n.waitT = rand(0, 2);
+      moved++;
+    }
   }
 
   spawnTownNPCs(town) {
     const nodes = town.streetNodes;
-    const n = this.quality === 'low' ? 8 : this.quality === 'medium' ? 16 : 24;
+    const n = this.quality === 'low' ? 10 : this.quality === 'medium' ? 20 : 30;
     const nation = town.port.nation;
+    // start them around the player: the streets you can see should be the busy ones
+    const focus = this.walker ? this.walker.pos : town.center;
+    const near = nodes.filter((p) => p.distanceTo(focus) < 110);
     for (let i = 0; i < n && nodes.length; i++) {
-      const p = pick(nodes);
+      const p = near.length && i < n * 0.8 ? pick(near) : pick(nodes);
       const kind = nation === 'pirate' && Math.random() < 0.55 ? 'pirate' : 'civilian';
       const npc = new NPC(this, lookFor(kind, nation), { x: p.x + rand(-2, 2), y: p.y, z: p.z + rand(-2, 2), kind, nation, town });
       this.npcs.push(npc);
@@ -1635,7 +1683,7 @@ export class Game {
   fastTravel(portId) {
     const town = this.towns[portId];
     const p = this.playerShip;
-    const dest = new THREE.Vector3(town.berth.x, 0, town.berth.z).add(new THREE.Vector3(town.sea.x, 0, town.sea.y).multiplyScalar(260));
+    const dest = this.roadstead(town);
     const dist = dest.distanceTo(p.position);
     const hours = dist / (p.cls.speed * 0.75) / 60 * 6;
     this.transition(900, () => {
@@ -1649,6 +1697,17 @@ export class Game {
       this.fillTraffic(true);
       this.ui.toast(`After ${Math.max(1, Math.round(hours))} hours under sail you raise ${town.port.name}.`, 'info', 5000);
     });
+  }
+
+  // open, deep water off a port where a ship arriving on a long course heaves into view
+  roadstead(town) {
+    const T = this.terrain, b = town.berth, sx = town.sea.x, sz = town.sea.y;
+    const deep = (x, z) => T.height(x, z) < -5;
+    for (let d = 120; d <= 420; d += 20) {
+      const x = b.x + sx * d, z = b.z + sz * d;
+      if (deep(x, z) && deep(x + sx * 40, z + sz * 40) && deep(x - sz * 40, z + sx * 40) && deep(x + sz * 40, z - sx * 40)) return new THREE.Vector3(x, 0, z);
+    }
+    return new THREE.Vector3(b.x + sx * 90, 0, b.z + sz * 90);
   }
 
   canSaveHere() { return true; }
@@ -1718,11 +1777,18 @@ export class Game {
       wind: this.wind.strength * (this.mode === 'sail' ? 1 : 0.5) + this.sky.storm * 0.5,
       rain: this.weather.cur.rain,
       town: inTown * (1 - night * 0.6),
+      bustle: this.crowd && this.crowd.town ? this.crowd.nearCount(cam, 30) / 14 * (1 - night * 0.8) : 0,
       onShip: this.mode === 'sail',
       seaState: this.ocean.seaState,
       nearLand,
       day: night < 0.5,
     });
+    // church bells toll the hours in the town you're in
+    const hr = Math.floor(this.state.hours);
+    if (this.currentTown && this.lastHour !== undefined && hr !== this.lastHour && this.currentTown.port.style !== 'shanty') {
+      this.audio.toll(this.currentTown.center, ((hr + 11) % 12) + 1);
+    }
+    this.lastHour = hr;
     // music
     let music = 'none';
     if (this.mode === 'title') music = 'sail';

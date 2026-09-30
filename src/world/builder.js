@@ -14,7 +14,10 @@ export function T(x = 0, y = 0, z = 0, ry = 0, sx = 1, sy = 1, sz = 1, rx = 0, r
   return new THREE.Matrix4().compose(_p, _q, _s);
 }
 
-export const UV_SCALE = { wall: 0.18, wood: 0.25, roof: 0.2, thatch: 0.18, stone: 0.16, clap: 0.2, default: 0.25 };
+export const UV_SCALE = { wall: 0.18, wood: 0.25, roof: 0.2, thatch: 0.18, stone: 0.16, clap: 0.2, brick: 0.3, shingle: 0.3, cobble: 0.2, default: 0.25 };
+
+// how much each material darkens at its foot
+const GRIME = { wall: 0.3, brick: 0.25, stone: 0.28, clap: 0.22 };
 
 export class Builder {
   constructor() { this.buckets = {}; this.col = new THREE.Color(); }
@@ -40,7 +43,18 @@ export class Builder {
     }
     const c = this.col.set(color);
     const colors = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
+    if (GRIME[bucket] && count > 12) {
+      // weathering: masonry darkens toward the ground (rising damp, splashed mud, soot), and no two
+      // buildings are quite the same shade
+      let y0 = Infinity, y1 = -Infinity;
+      for (let i = 0; i < count; i++) { const y = p.getY(i); if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      const tone = 0.93 + Math.random() * 0.12, k = GRIME[bucket];
+      for (let i = 0; i < count; i++) {
+        const f = Math.min(1, (p.getY(i) - y0) / Math.max(2.5, (y1 - y0) * 0.5));
+        const g = tone * (1 - k + k * f * f * (3 - 2 * f));
+        colors[i * 3] = c.r * g; colors[i * 3 + 1] = c.g * g; colors[i * 3 + 2] = c.b * g * 0.985;
+      }
+    } else for (let i = 0; i < count; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color'].includes(k)) g.deleteAttribute(k);
     (this.buckets[bucket] || (this.buckets[bucket] = [])).push(g);
@@ -102,8 +116,8 @@ export function hipRoofGeometry(w, d, h, o = 0.6) {
 
 // Photographic building materials (Poly Haven, CC0; tools/build-textures.mjs). Each photo is normalised to a
 // neutral average so the per-building vertex colours still paint the town's palette on top of it.
-const PHOTO = { wall: 'clay_plaster', clap: 'brown_planks_03', wood: 'brown_planks_09', roof: 'clay_roof_tiles_02', stone: 'coral_fort_wall_01' };
-const PHOTO_SCALE = { wall: 0.42, clap: 0.4, wood: 0.5, roof: 0.45, stone: 0.3 };
+const PHOTO = { wall: 'clay_plaster', clap: 'brown_planks_03', wood: 'brown_planks_09', roof: 'clay_roof_tiles_02', stone: 'coral_fort_wall_01', brick: 'brick_4', shingle: 'grey_roof_01', cobble: 'cobblestone_large_01' };
+const PHOTO_SCALE = { wall: 0.42, clap: 0.4, wood: 0.5, roof: 0.45, stone: 0.3, brick: 0.5, shingle: 0.5, cobble: 0.25 };
 const photo = {};
 export async function loadTownTextures(base = './textures/town/') {
   const loader = new THREE.TextureLoader();
@@ -141,6 +155,9 @@ export function sharedMaterials() {
     roof: ph('roof', roofTileTexture, { roughness: 0.8, side: THREE.DoubleSide }),
     thatch: std({ map: thatchTexture(), roughness: 1, side: THREE.DoubleSide }),
     stone: ph('stone', stoneTexture, { roughness: 0.95 }),
+    brick: ph('brick', stoneTexture, { roughness: 0.95 }),
+    shingle: ph('shingle', roofTileTexture, { roughness: 0.9, side: THREE.DoubleSide }),
+    cobble: ph('cobble', stoneTexture, { roughness: 0.95 }),
     cloth: std({ roughness: 1, side: THREE.DoubleSide }),
     metal: std({ roughness: 0.5, metalness: 0.6 }),
     plain: std({}),

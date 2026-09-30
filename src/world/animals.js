@@ -11,12 +11,57 @@ const SPECIES = {
   goat: { file: 'goat.glb', size: 0.85, walk: /walk_fwd_01/, idle: /rest_pose_scratch|idle_rest/, speed: 0.9 },
   donkey: { file: 'donkey.glb', size: 1.35, walk: /H_Walk$/, idle: /H_Idle_02/, speed: 1.0 },
   crab: { file: 'crab.glb', size: 0.07, idle: /Dance/, walk: /Dance/, speed: 0.35 },
+  rooster: { file: 'rooster.glb', size: 0.42, walk: /chikWalk/, idle: /eat/, speed: 0.7 },
+  pig: { file: 'pig.glb', size: 0.72, walk: /Take 001/, idle: /Take 001/, speed: 0.6 },
+  cow: { file: 'cow.glb', size: 1.4, idle: /idle1/, speed: 0 },
+  dog: { file: 'dog.glb', size: 0.55, walk: /walking_cycle/, idle: /standing_idle|sitting_idle/, speed: 1.3 },
+  pelican: { file: 'pelican.glb', len: 1.15, idle: /idle_A/, speed: 0 },
   seagull: { file: 'seagull.glb', len: 0.55, fly: /Armature|Action/ },
   dolphin: { file: 'dolphin.glb', len: 2.6, swim: /Swim/ },
   turtle: { file: 'turtle.glb', len: 0.95, swim: /Swim/ },
 };
 
 const _v = new THREE.Vector3();
+
+// who roams each town's streets (counts at high quality)
+const TOWN_ANIMALS = {
+  havana: { rooster: 12, dog: 5, pig: 3, goat: 3, donkey: 3, cow: 2 },
+  portroyal: { rooster: 9, dog: 5, goat: 4, pig: 3, donkey: 2 },
+  nassau: { pig: 8, goat: 6, rooster: 10, dog: 5, donkey: 1 },
+  tortuga: { pig: 6, dog: 7, rooster: 8, goat: 4, cow: 2 },
+};
+const CARTS = { havana: 6, portroyal: 4, nassau: 1, tortuga: 2 };
+
+// a two-wheeled mule cart with its load (the first child is the axle, which turns)
+const _cartMats = {};
+function cartMesh(i) {
+  const M = (c) => _cartMats[c] || (_cartMats[c] = new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 }));
+  const g = new THREE.Group();
+  const axle = new THREE.Group();
+  axle.position.set(0, 0.62, 0.2);
+  for (const s of [-1, 1]) {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.12, 14), M('#5a4028'));
+    w.rotation.z = Math.PI / 2; w.position.x = s * 1.05;
+    axle.add(w);
+    for (let k = 0; k < 4; k++) { const sp = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.15, 0.06), M('#6a4a30')); sp.position.x = s * 1.05; sp.rotation.x = (k / 4) * Math.PI; axle.add(sp); }
+  }
+  g.add(axle);
+  const bed = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 2.6), M('#7a5a3a')); bed.position.set(0, 1.0, 0.1); g.add(bed);
+  for (const s of [-1, 1]) { const side = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.45, 2.6), M('#6a4a30')); side.position.set(s * 0.9, 1.25, 0.1); g.add(side); }
+  for (const s of [-0.45, 0.45]) { const sh = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 2.6), M('#6a4a30')); sh.position.set(s, 0.95, 2.4); sh.rotation.x = 0.12; g.add(sh); }
+  const loads = [['#8a6a48', 'barrel'], ['#c8b58a', 'sack'], ['#8a5a3a', 'log']];
+  const [col, kind] = loads[i % loads.length];
+  for (let k = 0; k < 5; k++) {
+    let m;
+    if (kind === 'barrel') m = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.7, 10), M(col));
+    else if (kind === 'sack') { m = new THREE.Mesh(new THREE.SphereGeometry(0.36, 8, 6), M(col)); m.scale.set(1.1, 0.7, 1.4); }
+    else { m = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 2.4, 6), M(col)); m.rotation.x = Math.PI / 2; }
+    m.position.set(-0.45 + (k % 3) * 0.45, 1.45 + (k > 2 ? 0.35 : 0), kind === 'log' ? 0.1 : -0.6 + (k % 2) * 1.1);
+    g.add(m);
+  }
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
 
 class Animal {
   constructor(lib, name, pos) {
@@ -90,7 +135,7 @@ class Animals {
     return a;
   }
 
-  remove(a) { this.scene.remove(a.root); a.mixer.stopAllAction(); this.list = this.list.filter((x) => x !== a); }
+  remove(a) { this.scene.remove(a.root); if (a.cart) this.scene.remove(a.cart); a.mixer.stopAllAction(); this.list = this.list.filter((x) => x !== a); }
 
   update(dt, camPos, focus, ocean, terrain) {
     if (!this.scene) return;
@@ -101,11 +146,38 @@ class Animals {
       for (const a of this.list.filter((x) => x.town)) this.remove(a);
       this.town = town;
       if (town && town.streetNodes.length) {
-        const kinds = town.port.style === 'shanty' ? ['goat', 'goat', 'goat', 'donkey'] : ['goat', 'goat', 'donkey', 'donkey'];
-        for (const k of kinds) {
-          const n = town.streetNodes[Math.floor(Math.random() * town.streetNodes.length)];
-          const a = this.spawn(k, n);
-          if (a) a.town = town;
+        const q = g.quality === 'low' ? 0.4 : g.quality === 'medium' ? 0.7 : 1;
+        const mix = TOWN_ANIMALS[town.port.id] || TOWN_ANIMALS.havana;
+        const near = town.streetNodes.filter((n) => n.distanceTo(focus) < 140);
+        for (const [k, n0] of Object.entries(mix)) {
+          for (let i = 0; i < Math.round(n0 * q); i++) {
+            const pool = near.length && Math.random() < 0.7 ? near : town.streetNodes;
+            const n = pool[Math.floor(Math.random() * pool.length)];
+            const a = this.spawn(k, n.clone().add(_v.set((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6)));
+            if (!a) continue;
+            a.town = town;
+            if (k === 'rooster') { a.flock = true; a.cfg = { ...a.cfg, speed: 0.5 + Math.random() * 0.4 }; }
+          }
+        }
+        // pelicans on the wharf heads
+        for (const pl of town.platforms.slice(0, 6)) {
+          if (Math.random() < 0.4) continue;
+          const a = this.spawn('pelican', new THREE.Vector3(pl.x + (Math.random() - 0.5) * pl.hw, pl.y + 0.05, pl.z + (Math.random() - 0.5) * pl.hd));
+          if (a) { a.perch = true; a.town = town; a.yaw = Math.random() * 6.28; }
+        }
+        // mule carts on the streets
+        this.carts = [];
+        const G = town.crowdGraph || g.crowd?.graph(town);
+        if (G) for (let i = 0; i < Math.round((CARTS[town.port.id] ?? 3) * q); i++) {
+          const live = G.adj.map((x, k) => k).filter((k) => G.adj[k].length);
+          if (!live.length) break;
+          const from = live[Math.floor(Math.random() * live.length)];
+          const mule = this.spawn('donkey', G.nodes[from].clone());
+          if (!mule) break;
+          mule.town = town; mule.cartOf = { G, from, to: G.adj[from][0], t: 0 };
+          mule.cart = cartMesh(i);
+          this.scene.add(mule.cart);
+          this.carts.push(mule);
         }
       }
     }
@@ -168,18 +240,48 @@ class Animals {
       if (d2 > 450 * 450 && !a.pod) continue;
       a.t += dt;
       let moving = false;
-      if (a.town || a.name === 'crab') {
+      if (a.cartOf) {
+        // a mule plodding its cart along the streets
+        const C = a.cartOf, A = C.G.nodes[C.from], B = C.G.nodes[C.to];
+        const L = Math.hypot(B.x - A.x, B.z - A.z) || 1;
+        C.t += (0.95 * dt) / L;
+        if (C.t >= 1) {
+          const nb = C.G.adj[C.to].filter((k) => k !== C.from);
+          C.from = C.to; C.to = nb.length ? nb[Math.floor(Math.random() * nb.length)] : C.G.adj[C.to][0]; C.t = 0;
+        }
+        const tx = A.x + (B.x - A.x) * C.t, tz = A.z + (B.z - A.z) * C.t;
+        const want = Math.atan2(B.x - A.x, B.z - A.z);
+        let dy = want - a.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+        a.yaw += dy * Math.min(1, dt * 2.5);
+        a.pos.set(tx + Math.cos(a.yaw) * 1.2, 0, tz - Math.sin(a.yaw) * 1.2);
+        a.pos.y = g.groundAt(a.pos.x, a.pos.z);
+        a.root.position.copy(a.pos);
+        a.root.rotation.set(0, a.yaw, 0);
+        const cx = a.pos.x - Math.sin(a.yaw) * 2.9, cz = a.pos.z - Math.cos(a.yaw) * 2.9;
+        a.cart.position.set(cx, g.groundAt(cx, cz), cz);
+        a.cart.rotation.set(0, a.yaw, 0);
+        a.cart.children[0].rotation.x += dt * 1.6; // wheels
+        a.cart.visible = a.root.visible;
+        moving = true;
+      } else if (a.perch) {
+        a.root.position.copy(a.pos);
+        a.root.rotation.set(0, a.yaw, 0);
+      } else if (a.name === 'cow') {
+        a.pos.y = g.groundAt(a.pos.x, a.pos.z);
+        a.root.position.copy(a.pos);
+        a.root.rotation.set(0, a.yaw, 0);
+      } else if (a.town || a.name === 'crab') {
         // wander: pick a nearby point, walk there, graze / sit a while
         if (!a.target) {
           a.wait -= dt;
           if (a.wait <= 0) {
-            const r = a.name === 'crab' ? 3 : 14;
+            const r = a.name === 'crab' ? 3 : a.flock ? 4 : 14;
             const base = a.town && Math.random() < 0.3 ? a.town.streetNodes[Math.floor(Math.random() * a.town.streetNodes.length)] : a.pos;
             a.target = base.clone().add(_v.set((Math.random() - 0.5) * r * 2, 0, (Math.random() - 0.5) * r * 2));
           }
         } else {
           const dx = a.target.x - a.pos.x, dz = a.target.z - a.pos.z, dl = Math.hypot(dx, dz);
-          if (dl < 0.4 || g.blockedAt?.(a.pos.x + dx / dl, a.pos.z + dz / dl, 0.3, a.pos.y)) { a.target = null; a.wait = 2 + Math.random() * (a.name === 'crab' ? 3 : 10); }
+          if (dl < 0.4 || g.blockedAt?.(a.pos.x + dx / dl, a.pos.z + dz / dl, 0.3, a.pos.y)) { a.target = null; a.wait = (a.flock ? 0.5 : 2) + Math.random() * (a.name === 'crab' || a.flock ? 3 : 10); }
           else {
             const sp = a.cfg.speed;
             if (a.name === 'crab') { a.pos.x += dx / dl * sp * dt; a.pos.z += dz / dl * sp * dt; a.yaw = Math.atan2(dz, -dx); } // crabs go sideways

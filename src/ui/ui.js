@@ -1,5 +1,5 @@
 // DOM user interface: HUD, minimap, sea chart, shops, dialogs and menus.
-import { PORTS, ISLANDS, GOODS, SHIP_CLASSES, NATIONS, AMMO, SALVAGE_CAMP } from '../game/data.js';
+import { PORTS, ISLANDS, GOODS, SHIP_CLASSES, NATIONS, AMMO, SALVAGE_CAMP, at } from '../game/data.js';
 import { WORLD_HALF } from '../world/terrain.js';
 import { flagTexture, parchmentCanvas } from '../core/textures.js';
 import { clamp } from '../core/noise.js';
@@ -415,7 +415,7 @@ export class UI {
     const ctx = this.mmCtx;
     const W = this.mm.width, R = W / 2;
     const foot = g.mode === 'foot';
-    const radius = foot ? 140 : 900; // world units shown to the edge
+    const radius = foot ? 140 : 1400; // world units shown to the edge
     const size = g.terrain.heightSize;
     const scale = R / radius; // px per world unit
     const mapScale = (WORLD_HALF * 2) / size; // world units per map px
@@ -564,7 +564,7 @@ export class UI {
 
   chartView(w, h) {
     // world bounds shown on the chart
-    const x0 = -6400, x1 = 7400, z0 = -8600, z1 = 1900;
+    const x0 = -14800, x1 = 14800, z0 = -13200, z1 = 11600; // Florida to the Caribbean coast of Hispaniola
     const sx = w / (x1 - x0), sz = h / (z1 - z0);
     const s = Math.min(sx, sz);
     const ox = (w - (x1 - x0) * s) / 2, oz = (h - (z1 - z0) * s) / 2;
@@ -609,7 +609,7 @@ export class UI {
     }
     ctx.putImageData(img, 0, 0);
     // rhumb lines from a compass rose (portolan style)
-    const [rx, ry] = v.toPx(-5200, -600);
+    const [rx, ry] = v.toPx(...at(-70.6, 25.2));
     ctx.strokeStyle = 'rgba(90,60,30,0.22)';
     ctx.lineWidth = 1;
     for (let i = 0; i < 32; i++) {
@@ -621,17 +621,17 @@ export class UI {
     ctx.fillStyle = 'rgba(58,38,20,0.9)';
     ctx.textAlign = 'center';
     for (const is of ISLANDS) {
-      if (is.id === 'hog' || is.id === 'tortuga') continue;
+      if (is.minor) continue;
       const [px, py] = v.toPx(is.x, is.z);
-      const big = is.rx > 800;
+      const big = is.rx > 2500;
       ctx.font = `italic ${big ? 26 : 16}px "IM Fell English", serif`;
       ctx.fillText(is.name, px, py + (big ? 8 : is.rz * v.s + 16));
     }
     ctx.font = `italic 30px "IM Fell English", serif`;
     ctx.fillStyle = 'rgba(58,38,20,0.55)';
-    ctx.fillText('The Gulf of Florida', ...v.toPx(-2600, -6200));
-    ctx.fillText('Mar del Norte', ...v.toPx(4200, -7200));
-    ctx.fillText('The Caribbean Sea', ...v.toPx(-3600, 1500));
+    ctx.fillText('The Gulf of Florida', ...v.toPx(...at(-80.6, 23.9)));
+    ctx.fillText('Mar del Norte', ...v.toPx(...at(-72.5, 26.8)));
+    ctx.fillText('The Caribbean Sea', ...v.toPx(...at(-80.5, 17.4)));
     ctx.font = `${Math.round(w * 0.034)}px "Pirata One", serif`;
     ctx.fillStyle = 'rgba(58,38,20,0.85)';
     ctx.textAlign = 'right';

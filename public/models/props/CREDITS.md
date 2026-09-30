@@ -24,3 +24,5 @@ All models in this folder come from [Poly Haven](https://polyhaven.com) and are 
 | wooden_handle_saber.glb | https://polyhaven.com/a/wooden_handle_saber |
 | machete.glb | https://polyhaven.com/a/machete |
 | hatchet.glb | https://polyhaven.com/a/hatchet |
+| rowboat.glb | "Old Rowboat" by TooManyDemons | CC Attribution | https://sketchfab.com/3d-models/9922d5678af84adeb1c9b479856446ca |
+| canoe.glb | "Sheboygan County Historical Museum Dugout Canoe" by sschroeder2 | CC Attribution-NonCommercial-ShareAlike | https://sketchfab.com/3d-models/6bcf97f157e74702832fc52e32e47332 |

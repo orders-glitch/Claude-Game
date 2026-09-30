@@ -1,6 +1,10 @@
 // Static game data — geography, nations, ships, goods. Everything is set in the West Indies, 1716,
 // the height of the "Republic of Pirates" in Nassau after the wreck of the 1715 Spanish Plate Fleet.
 
+import { SHAPES } from './coastlines.js';
+import { ISLAND_META } from './islands.js';
+import { geo } from './geo.js';
+
 export const NATIONS = {
   britain: {
     id: 'britain', name: 'Great Britain', adj: 'British', flag: 'britain',
@@ -24,53 +28,43 @@ export const NATIONS = {
   },
 };
 
-// Islands of our (compressed) Caribbean. North is -Z. rx/rz are ellipse radii, rot in radians.
-export const ISLANDS = [
-  { id: 'newprovidence', name: 'New Providence', x: 1800, z: -4600, rx: 560, rz: 300, rot: 0.08, peak: 42, seed: 11, jungle: 0.55 },
-  { id: 'hog', name: 'Hog Island', x: 1820, z: -5120, rx: 420, rz: 55, rot: 0.04, peak: 7, seed: 12, jungle: 0.2 },
-  { id: 'eleuthera', name: 'Eleuthera', x: 3500, z: -5300, rx: 900, rz: 120, rot: 0.55, peak: 18, seed: 13, jungle: 0.4 },
-  { id: 'exuma', name: 'Great Exuma', x: 3500, z: -3500, rx: 520, rz: 110, rot: -0.7, peak: 14, seed: 14, jungle: 0.35 },
-  { id: 'andros', name: 'Andros', x: 250, z: -4300, rx: 380, rz: 700, rot: 0.1, peak: 16, seed: 15, jungle: 0.7 },
-  { id: 'florida', name: 'Florida (Palmar de Ayz)', x: -1500, z: -6900, rx: 420, rz: 1500, rot: -0.12, peak: 20, seed: 21, jungle: 0.8 },
-  { id: 'matecumbe', name: 'Matecumbe Key', x: -2500, z: -4950, rx: 460, rz: 70, rot: -0.55, peak: 5, seed: 22, jungle: 0.5 },
-  { id: 'cayohueso', name: 'Cayo Hueso', x: -3700, z: -4500, rx: 280, rz: 110, rot: -0.2, peak: 6, seed: 23, jungle: 0.45 },
-  { id: 'tortugas', name: 'Las Tortugas Secas', x: -5300, z: -5000, rx: 150, rz: 90, rot: 0.3, peak: 4, seed: 24, jungle: 0.1 },
-  { id: 'cuba', name: 'Cuba', x: -1600, z: -2350, rx: 3900, rz: 480, rot: -0.1, peak: 140, seed: 31, jungle: 0.85 },
-  { id: 'pinos', name: 'Isla de Pinos', x: -3900, z: -1050, rx: 380, rz: 300, rot: 0.2, peak: 38, seed: 32, jungle: 0.6 },
-  { id: 'cayman', name: 'Grand Cayman', x: -1700, z: 900, rx: 260, rz: 85, rot: 0.1, peak: 8, seed: 33, jungle: 0.4 },
-  { id: 'jamaica', name: 'Jamaica', x: 1300, z: 700, rx: 1000, rz: 360, rot: 0.02, peak: 150, seed: 41, jungle: 0.95 },
-  { id: 'hispaniola', name: 'Hispaniola', x: 5400, z: -1000, rx: 1500, rz: 650, rot: 0.08, peak: 170, seed: 51, jungle: 0.9 },
-  { id: 'tortuga', name: 'Tortuga', x: 5000, z: -2250, rx: 400, rz: 115, rot: 0.03, peak: 55, seed: 52, jungle: 0.75 },
-  { id: 'vache', name: 'Île-à-Vache', x: 4250, z: 100, rx: 200, rz: 85, rot: -0.2, peak: 9, seed: 53, jungle: 0.5 },
-];
+// Islands: real coastlines at 1:60 (see geo.js, islands.js and tools/build-coastlines.mjs). North is -Z.
+// x, z: centre of the island's box; rx, rz: half extents. Unnamed cays are `minor` and carry no label.
+export const ISLANDS = SHAPES.map((s, i) => {
+  const meta = ISLAND_META.find((m) => m.id === s.id);
+  return { peak: 4, seed: 100 + i, jungle: 0.3, minor: true, name: 'cay', ...meta, id: s.id, x: s.x, z: s.z, rx: s.rx, rz: s.rz, rot: 0, pts: s.pts };
+});
+
+// a game position from a real longitude/latitude, plus an offset in metres (x east, z south)
+export const at = (lon, lat, dx = 0, dz = 0) => { const g = geo(lon, lat); return [g.x + dx, g.z + dz]; };
 
 // Ports. `coast` is an approximate coastal point; `dir` the direction the harbour faces (radians, bearing
 // measured like ship heading: 0 = north/-Z, +PI/2 = west). The town generator snaps to the true coastline.
 export const PORTS = [
   {
-    id: 'nassau', name: 'Nassau', island: 'newprovidence', nation: 'pirate', coast: [1800, -4905], dir: 0,
+    id: 'nassau', name: 'Nassau', island: 'newprovidence', nation: 'pirate', coast: at(-77.345, 25.078, 0, -14), dir: 0,
     style: 'shanty', size: 1.0, fort: true, desc: 'The Republic of Pirates. No governor, no law — only the Brethren.',
     produces: ['hides', 'logwood'], demands: ['rum', 'silver', 'cloth', 'powder'], shipyard: ['sloop', 'brigantine'],
   },
   {
-    id: 'havana', name: 'La Habana', island: 'cuba', nation: 'spain', coast: [-3500, -2750], dir: 0.05,
+    id: 'havana', name: 'La Habana', island: 'cuba', nation: 'spain', coast: at(-82.357, 23.14, -85, 215), dir: -Math.PI / 2,
     style: 'spanish', size: 1.35, fort: true, desc: 'Key of the New World. Gathering port of the Spanish treasure fleets.',
     produces: ['tobacco', 'sugar', 'hides'], demands: ['cloth', 'indigo'], shipyard: ['sloop', 'brigantine', 'frigate', 'galleon'],
   },
   {
-    id: 'portroyal', name: 'Port Royal', island: 'jamaica', nation: 'britain', coast: [1650, 1070], dir: Math.PI,
+    id: 'portroyal', name: 'Port Royal', island: 'jamaica', nation: 'britain', coast: at(-76.842, 17.937, -540, 96), dir: 0,
     style: 'english', size: 1.2, fort: true, desc: 'Rebuilt after the great earthquake of 1692. Seat of the Royal Navy in the West Indies.',
     produces: ['sugar', 'rum', 'molasses'], demands: ['cacao', 'silver', 'tobacco'], shipyard: ['sloop', 'brigantine', 'frigate'],
   },
   {
-    id: 'tortuga', name: 'Cayona', island: 'tortuga', nation: 'france', coast: [5000, -2135], dir: Math.PI,
+    id: 'tortuga', name: 'Cayona', island: 'tortuga', nation: 'france', coast: at(-72.78, 20.03, 0, 72), dir: Math.PI,
     style: 'french', size: 0.9, fort: true, desc: 'Old haunt of the boucaniers, now a sleepy French trading post.',
     produces: ['indigo', 'cacao', 'cotton'], demands: ['rum', 'cloth', 'powder'], shipyard: ['sloop', 'brigantine'],
   },
 ];
 
 // Mission-only location: the Spanish salvage camp over the wrecks of the 1715 Plate Fleet.
-export const SALVAGE_CAMP = { id: 'salvage', name: 'Spanish Salvage Camp', coast: [-1080, -7250], dir: -Math.PI / 2 - 0.1 };
+export const SALVAGE_CAMP = { id: 'salvage', name: 'Spanish Salvage Camp', coast: at(-80.44, 27.84), dir: -Math.PI / 2 - 0.1 };
 
 export const GOODS = {
   sugar: { name: 'Sugar', unit: 'hogshead', base: 14 },

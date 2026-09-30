@@ -206,6 +206,15 @@ export class Effects {
     this.flashLight(pos, 1500, 0.4);
   }
 
+  // a cook fire or chimney: a lick of flame (optional) and a thin column of pale wood smoke
+  hearth(pos, dt, flame = true) {
+    if (flame && Math.random() < dt * 14) this.fire.spawn({ x: pos.x + rand(-0.3, 0.3), y: pos.y, z: pos.z + rand(-0.3, 0.3), vx: rand(-0.2, 0.2), vy: rand(0.8, 1.6), vz: rand(-0.2, 0.2), life: rand(0.35, 0.7), size: rand(0.35, 0.6), endSize: 0.1, r: 1, g: rand(0.45, 0.6), b: 0.15, drag: 1, fadeIn: 0.15 });
+    if (Math.random() < dt * 3) {
+      const g = rand(0.62, 0.78);
+      this.smoke.spawn({ x: pos.x + rand(-0.2, 0.2), y: pos.y + (flame ? 0.8 : 0), z: pos.z + rand(-0.2, 0.2), vx: rand(-0.2, 0.2), vy: rand(0.9, 1.5), vz: rand(-0.2, 0.2), life: rand(6, 10), size: 0.6, endSize: rand(4, 7), r: g, g: g * 0.98, b: g * 0.95, alpha: 0.28, drag: 0.35, buoy: 0.12 });
+    }
+  }
+
   dust(pos) {
     for (let i = 0; i < 6; i++) this.smoke.spawn({ x: pos.x, y: pos.y, z: pos.z, vx: rand(-2, 2), vy: rand(0.5, 2), vz: rand(-2, 2), life: 1.2, size: 0.5, endSize: 2, r: 0.75, g: 0.68, b: 0.55, alpha: 0.5 });
   }

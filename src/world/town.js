@@ -5,6 +5,9 @@ import { Builder, T, gableRoofGeometry, gableEndGeometry, hipRoofGeometry, share
 import { mulberry32, pick as rpick } from '../core/noise.js';
 import { flagTexture } from '../core/textures.js';
 import { props, PM } from './props.js';
+import { PLANS, CityKit } from './cities.js';
+import { HARBOURS } from '../game/harbours.js';
+import { geo } from '../game/geo.js';
 
 // cannon_01 is modelled with its muzzle toward +Z; forts face the sea (local -Z)
 const CANNON_YAW = Math.PI;
@@ -51,13 +54,18 @@ export class Town {
     this.cannons = [];
     this.lots = [];
     this.spots = []; // places townsfolk go to sit, talk, dance or work: { type, pos, yaw }
+    this.fires = []; // cook fires, boucans and tar kettles (world positions)
+    this.chimneys = []; // smoking chimney tops
+    this.plan = PLANS[port.id] || null;
+    const hb = HARBOURS.find((h) => h.id === port.id);
+    this.anchor = hb ? geo(...hb.anchor) : { x: port.coast[0], z: port.coast[1] };
 
     // --- locate coastline & town frame
     const dir = port.dir;
     const sx = -Math.sin(dir), sz = -Math.cos(dir); // seaward
     // pick the stretch of this coast with open water off the pier and room for a town behind it
     let c = terrain.findCoast(port.coast[0], port.coast[1], sx, sz), best = -1;
-    for (let off = -700; off <= 700; off += 50) {
+    for (let off = -100; off <= 100; off += 20) { // the harbours are shaped by hand: stay on the site
       const q = terrain.findCoast(port.coast[0] - sz * off, port.coast[1] + sx * off, sx, sz);
       let score = 0;
       for (let d = 20; d <= 200; d += 20) if (terrain.baseHeight(q.x + sx * d, q.z + sz * d) < -3) score += 1;
@@ -69,18 +77,28 @@ export class Town {
         const h = terrain.baseHeight(q.x - sx * 80 - sz * w, q.z - sz * 80 + sx * w);
         if (h > 0.8 && h < 14) score += 0.8;
       }
-      score -= Math.abs(off) / 400; // stay near the historical site
+      score -= Math.abs(off) / 40;
       if (score > best) { best = score; c = q; }
     }
     this.coast = new THREE.Vector3(c.x, 0, c.z);
     this.dir = dir;
     this.sea = new THREE.Vector2(sx, sz);
     this.right = new THREE.Vector2(-sz, sx); // local +X
-    // flatten a plateau inland
-    const center = this.toWorld(0, this.R * 0.55);
-    this.center = center;
-    this.level = 2.6;
-    terrain.addZone({ x: center.x, z: center.z, r: this.R * 1.3, level: this.level, dirt: true });
+    if (this.plan) {
+      // the town's own ground: level terraces where the period town stood
+      const P = this.plan;
+      this.R = P.R;
+      this.center = new THREE.Vector3(this.anchor.x + P.center[0], 0, this.anchor.z + P.center[1]);
+      this.level = P.zones[0][3];
+      this.groundZones = P.zones.map(([x, z, r]) => ({ x: this.anchor.x + x, z: this.anchor.z + z, r: r * 0.75 }));
+      for (const [x, z, r, level] of P.zones) terrain.addZone({ x: this.anchor.x + x, z: this.anchor.z + z, r, level, dirt: true, inner: 0.6 });
+    } else {
+      // flatten a plateau inland
+      const center = this.toWorld(0, this.R * 0.55);
+      this.center = center;
+      this.level = 2.6;
+      terrain.addZone({ x: center.x, z: center.z, r: this.R * 1.3, level: this.level, dirt: true });
+    }
     // builder-local (a, y, b) -> world, matching the batched town group's transform
     this.frame = new THREE.Matrix4().compose(this.coast, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), dir), new THREE.Vector3(1, 1, 1));
   }
@@ -138,6 +156,87 @@ export class Town {
     );
   }
 
+  // world -> local (a along the coast, b inland)
+  fromWorld(x, z) {
+    const dx = x - this.coast.x, dz = z - this.coast.z;
+    return { a: dx * this.right.x + dz * this.right.y, b: -(dx * this.sea.x + dz * this.sea.y) };
+  }
+
+  // metres from the harbour anchor (x east, z south) -> local
+  fromAnchor(x, z) { return this.fromWorld(this.anchor.x + x, this.anchor.z + z); }
+
+  // oriented footprints in local space (separating-axis test)
+  reserveRect(a, b, hw, hd, rot = 0) { this.lots.push({ a, b, hw, hd, rot }); }
+
+  overlapsRect(a, b, hw, hd, rot = 0) {
+    const c1 = Math.cos(rot), s1 = Math.sin(rot);
+    for (const l of this.lots) {
+      const r0 = l.rot || 0;
+      const dx = l.a - a, dz = l.b - b;
+      if (dx * dx + dz * dz > (hw + hd + l.hw + l.hd) ** 2) continue;
+      const c2 = Math.cos(r0), s2 = Math.sin(r0);
+      // axes of both boxes (local x axis of a rotated box is (c, -s), z axis (s, c))
+      const axes = [[c1, -s1], [s1, c1], [c2, -s2], [s2, c2]];
+      let sep = false;
+      for (const [ux, uz] of axes) {
+        const p = Math.abs(dx * ux + dz * uz);
+        const r1 = hw * Math.abs(c1 * ux - s1 * uz) + hd * Math.abs(s1 * ux + c1 * uz);
+        const r2 = l.hw * Math.abs(c2 * ux - s2 * uz) + l.hd * Math.abs(s2 * ux + c2 * uz);
+        if (p > r1 + r2) { sep = true; break; }
+      }
+      if (!sep) return true;
+    }
+    return false;
+  }
+
+  pier(a0) { this.buildPier(this.B, a0); }
+
+  // is a world point inside the built town (streets, lots)? used to keep trees out of it
+  inTown(x, z, ground = true) {
+    // trampled town ground: no undergrowth (trees and palms may still stand between the houses)
+    if (ground && this.groundZones) for (const g of this.groundZones) if ((x - g.x) ** 2 + (z - g.z) ** 2 < g.r * g.r) return true;
+    const M = this.mask;
+    if (!M) return Math.hypot(x - this.center.x, z - this.center.z) < this.R * 1.35;
+    const { a, b } = this.fromWorld(x, z);
+    const i = Math.floor((a - M.a0) / M.cell), j = Math.floor((b - M.b0) / M.cell);
+    if (i < 0 || j < 0 || i >= M.W || j >= M.H) return false;
+    return M.data[j * M.W + i] === 1;
+  }
+
+  buildMask() {
+    const cell = 3;
+    let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+    for (const l of this.lots) { const r = l.hw + l.hd + 4; a0 = Math.min(a0, l.a - r); a1 = Math.max(a1, l.a + r); b0 = Math.min(b0, l.b - r); b1 = Math.max(b1, l.b + r); }
+    if (!isFinite(a0)) return;
+    const W = Math.ceil((a1 - a0) / cell), H = Math.ceil((b1 - b0) / cell);
+    const data = new Uint8Array(W * H);
+    const mark = (a, b, hw, hd, rot) => {
+      const c = Math.cos(rot), s = Math.sin(rot);
+      const r = hw + hd;
+      for (let j = Math.floor((b - r - b0) / cell); j <= Math.ceil((b + r - b0) / cell); j++) for (let i = Math.floor((a - r - a0) / cell); i <= Math.ceil((a + r - a0) / cell); i++) {
+        if (i < 0 || j < 0 || i >= W || j >= H) continue;
+        const dx = a0 + (i + 0.5) * cell - a, dz = b0 + (j + 0.5) * cell - b;
+        if (Math.abs(dx * c - dz * s) < hw && Math.abs(dx * s + dz * c) < hd) data[j * W + i] = 1;
+      }
+    };
+    for (const l of this.lots) mark(l.a, l.b, l.hw + 2.5, l.hd + 2.5, l.rot || 0);
+    for (const n of this.streetNodes) { const { a, b } = this.fromWorld(n.x, n.z); mark(a, b, 5, 5, 0); }
+    this.mask = { a0, b0, cell, W, H, data };
+  }
+
+  lanternPost(B, a, b) {
+    const y = this.groundAt(a, b);
+    B.cyl('wood', 0.09, 0.12, 3.6, 5, T(a, y + 1.8, b), '#3a2a1a');
+    if (this.prop('wooden_lantern_01', a, y + 3.6, b, this.rand() * 6, 1.4)) {
+      B.box('glow', 0.1, 0.22, 0.1, T(a, y + 3.95, b), '#ffcf80');
+    } else {
+      B.box('metal', 0.45, 0.6, 0.45, T(a, y + 3.8, b), '#222');
+      B.box('glow', 0.3, 0.4, 0.3, T(a, y + 3.8, b), '#ffcf80');
+    }
+    this.lanterns.push(this.toWorld(a, b, y + 3.9));
+    this.addCollider(a, b, 0.2, 0.2, 0, 3.6);
+  }
+
   groundAt(a, b) {
     const w = this.toWorld(a, b);
     return this.terrain.height(w.x, w.z);
@@ -152,14 +251,9 @@ export class Town {
     return true;
   }
 
-  overlapsLots(a, b, hw, hd, pad = 1.5) {
-    for (const l of this.lots) {
-      if (Math.abs(a - l.a) < hw + l.hw + pad && Math.abs(b - l.b) < hd + l.hd + pad) return true;
-    }
-    return false;
-  }
+  overlapsLots(a, b, hw, hd, pad = 1.5) { return this.overlapsRect(a, b, hw + pad, hd + pad, 0); }
 
-  reserve(a, b, hw, hd) { this.lots.push({ a, b, hw, hd }); }
+  reserve(a, b, hw, hd) { this.lots.push({ a, b, hw, hd, rot: 0 }); }
 
   addCollider(a, b, hw, hd, rot = 0, height = 12) {
     const w = this.toWorld(a, b);
@@ -169,6 +263,7 @@ export class Town {
 
   // ---------------------------------------------------------------- build
   build(scene) {
+    if (this.plan) return this.buildPlan(scene);
     const B = new Builder();
     this.B = B;
     const st = this.style;
@@ -291,6 +386,30 @@ export class Town {
       this.lanterns.push(this.toWorld(a, b, y + 3.9));
     }
 
+    return this.finish(scene, B);
+  }
+
+  // a period town from its plan (cities.js)
+  buildPlan(scene) {
+    const B = new Builder();
+    this.B = B;
+    const K = new CityKit(this, B, this.plan.seed);
+    this.plan.build(K);
+    // lamps along the streets (not in the pirates' camp)
+    if (this.port.style !== 'shanty') {
+      let k = 0;
+      for (const n of this.streetNodes) {
+        if (k++ % 5) continue;
+        const { a, b } = this.fromWorld(n.x, n.z);
+        const la = a + 3.2, lb = b;
+        if (!this.overlapsRect(la, lb, 0.5, 0.5, 0) && this.isLandLot(la, lb, 0.3, 0.3)) { this.lanternPost(B, la, lb); this.reserve(la, lb, 0.4, 0.4); }
+      }
+    }
+    this.buildMask();
+    return this.finish(scene, B);
+  }
+
+  finish(scene, B) {
     // ---- flag over the fort / governor's house
     const materials = sharedMaterials();
     const group = B.build(materials);

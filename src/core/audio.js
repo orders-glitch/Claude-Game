@@ -96,6 +96,18 @@ export class AudioSystem {
       rain: this.loop(this.white, 'highpass', 2500, 0.5),
       crowd: this.loop(this.pink, 'bandpass', 380, 1.5),
     };
+    // a street's hubbub: a handful of 'voices' (noise through vowel formants, gated at syllable rate)
+    this.voices = [];
+    for (let i = 0; i < 6; i++) {
+      const v = this.loop(this.pink, 'bandpass', 500 + i * 180, 4);
+      const f2 = this.ctx.createBiquadFilter(); f2.type = 'peaking'; f2.frequency.value = 1400 + i * 260; f2.gain.value = 9; f2.Q.value = 3;
+      v.f.disconnect(); v.f.connect(f2).connect(v.g);
+      this.voices.push({ ...v, f2, t: Math.random(), on: 0, base: 350 + Math.random() * 500 });
+    }
+    this.samples = {};
+    for (const [k, url] of Object.entries({ bell: './audio/bell.ogg', market: './audio/market.ogg', dog: './audio/dog.ogg', chickens: './audio/chickens.ogg' })) {
+      fetch(url).then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => b && this.ctx.decodeAudioData(b)).then((buf) => { if (buf) this.samples[k] = buf; }).catch(() => {});
+    }
     this.creakTimer = 2;
     this.gullTimer = 5;
   }
@@ -112,7 +124,40 @@ export class AudioSystem {
     A.wind.g.gain.setTargetAtTime(0.02 + 0.07 * s.wind, t, 0.5);
     A.wind.f.frequency.setTargetAtTime(420 + 500 * s.wind + 180 * Math.sin(t * 0.7), t, 0.4);
     A.rain.g.gain.setTargetAtTime(0.12 * s.rain, t, 0.8);
-    A.crowd.g.gain.setTargetAtTime(0.05 * s.town, t, 1);
+    A.crowd.g.gain.setTargetAtTime(0.03 * s.town + 0.025 * (s.bustle || 0), t, 1);
+    // voices come and go at the pace of speech
+    const busy = Math.min(1, s.bustle || 0);
+    for (const v of this.voices) {
+      v.t -= dt;
+      if (v.t <= 0) {
+        v.on = Math.random() < 0.25 + busy * 0.6 ? 1 : 0;
+        v.t = 0.08 + Math.random() * 0.22;
+        v.f.frequency.setTargetAtTime(v.base + Math.random() * 400, t, 0.04);
+      }
+      v.g.gain.setTargetAtTime(v.on * 0.018 * busy * (s.town > 0 ? 1 : 0), t, 0.03);
+    }
+    if (this.samples.market) {
+      if (!this.marketSrc && busy > 0.1) {
+        const src = this.ctx.createBufferSource(); src.buffer = this.samples.market; src.loop = true;
+        const g = this.ctx.createGain(); g.gain.value = 0; const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2400;
+        src.connect(f).connect(g).connect(this.sfx); src.start(0, Math.random() * 10);
+        this.marketSrc = { src, g };
+      }
+      if (this.marketSrc) this.marketSrc.g.gain.setTargetAtTime(0.22 * busy * (s.town > 0 ? 1 : 0), t, 1.5);
+    }
+    // the sounds of a working town
+    if (s.town > 0) {
+      this.townT = (this.townT || 0) - dt;
+      if (this.townT <= 0) {
+        this.townT = 0.8 + Math.random() * 2.5;
+        const r = Math.random();
+        const rp = () => ({ x: this.listener.x + (Math.random() - 0.5) * 80, y: this.listener.y, z: this.listener.z + (Math.random() - 0.5) * 80 });
+        if (r < 0.2 && s.day) this.rooster(rp());
+        else if (r < 0.35) this.bark(rp());
+        else if (r < 0.5 && s.day) this.hammer(rp(), 3 + Math.floor(Math.random() * 5));
+        else if (r < 0.58 && s.day) this.cartCreak(rp());
+      }
+    }
     this.creakTimer -= dt;
     if (s.onShip && this.creakTimer <= 0) {
       this.creakTimer = 1.5 + Math.random() * 4;
@@ -287,6 +332,43 @@ export class AudioSystem {
 
   coins() {
     for (let i = 0; i < 7; i++) this.tone(2400 + Math.random() * 2400, { dur: 0.25, type: 'sine', gain: 0.08, delay: i * 0.05 + Math.random() * 0.03 });
+  }
+
+  sample(name, { pos, ref = 120, gain = 0.6, rate = 1 } = {}) {
+    const buf = this.samples?.[name];
+    if (!this.ready || !buf) return false;
+    const sp = pos ? this.spatial(pos, ref) : { node: this.sfx, delay: 0, vol: 1 };
+    if (sp.vol < 0.004) return true;
+    const src = this.ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = rate;
+    const g = this.ctx.createGain(); g.gain.value = gain;
+    src.connect(g).connect(sp.node);
+    src.start(this.ctx.currentTime + sp.delay);
+    return true;
+  }
+
+  // church bell tolling n strokes
+  toll(pos, n) {
+    for (let i = 0; i < n; i++) setTimeout(() => { if (!this.sample('bell', { pos, ref: 400, gain: 0.5, rate: 0.9 })) this.bell(1); }, i * 2600);
+  }
+
+  rooster(pos) {
+    if (this.sample('chickens', { pos, ref: 60, gain: 0.25, rate: 0.95 + Math.random() * 0.1 })) return;
+    const f = 520 + Math.random() * 80;
+    [[f, f * 1.4, 0.18], [f * 1.4, f * 1.25, 0.25], [f * 1.3, f * 0.8, 0.5]].forEach(([a, b, d], i) => this.tone(a, { pos, ref: 70, dur: d, type: 'sawtooth', gain: 0.02, freqEnd: b, delay: i * 0.17, attack: 0.03 }));
+  }
+
+  bark(pos) {
+    if (this.sample('dog', { pos, ref: 60, gain: 0.3, rate: 0.9 + Math.random() * 0.25 })) return;
+    const n = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) setTimeout(() => this.burst(this.pink, { pos, ref: 60, dur: 0.14, filter: 'bandpass', freq: 700 + Math.random() * 200, q: 3, gain: 0.35, freqEnd: 400 }), i * 260);
+  }
+
+  hammer(pos, n) {
+    for (let i = 0; i < n; i++) setTimeout(() => { this.burst(this.white, { pos, ref: 70, dur: 0.07, filter: 'bandpass', freq: 2600, q: 2, gain: 0.3 }); this.tone(310 + Math.random() * 30, { pos, ref: 70, dur: 0.12, type: 'triangle', gain: 0.05 }); }, i * (420 + Math.random() * 120));
+  }
+
+  cartCreak(pos) {
+    for (let i = 0; i < 3; i++) this.tone(180 + Math.random() * 60, { pos, ref: 50, dur: 0.35, type: 'sawtooth', gain: 0.012, freqEnd: 240, delay: i * 0.7, attack: 0.1 });
   }
 
   bell(n = 2) {

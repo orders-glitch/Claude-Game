@@ -25,6 +25,9 @@ const TEXTURES = {
   brown_planks_09: ['town', 1024],
   clay_roof_tiles_02: ['town', 1024],
   coral_fort_wall_01: ['town', 1024],
+  brick_4: ['town', 1024], // Port Royal's red English brick
+  grey_roof_01: ['town', 1024], // cedar shingles
+  cobblestone_large_01: ['town', 1024], // plazas and paved streets
 };
 const only = process.argv.slice(2);
 
