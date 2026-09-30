@@ -45,6 +45,7 @@ import { TerrainDetail } from './world/terrain.js';
 import { ISLANDS, PORTS, NATIONS, SHIP_CLASSES, SHIP_NAMES, GOODS, SALVAGE_CAMP, MONTHS, at } from './game/data.js';
 import { GameState } from './game/state.js';
 import { Wreckage } from './entities/wreckage.js';
+import { Stealth } from './game/stealth.js';
 import { Missions } from './game/missions.js';
 import { UI } from './ui/ui.js';
 
@@ -319,6 +320,7 @@ export class Game {
     this.clearWorld();
     this.mate = null;
     this.wreckage?.clear();
+    this.stealth?.clearTown();
     this.broadCam = null;
     this.volley = null;
     this.ui.hideTitle();
@@ -1486,13 +1488,15 @@ export class Game {
     const w = this.walker;
     if (!w) return;
     if (this.boarding) this.boarding.update(dt);
-    w.update(dt, this.input, this.camera);
+    if (!this.stealth) this.stealth = new Stealth(this);
+    if (!this.stealth.hidden) w.update(dt, this.input, this.camera);
     w.updateCamera(this.camera, dt);
     this.camera.fov = damp(this.camera.fov, w.aiming ? this.baseFov * 0.75 : this.baseFov, 8, dt);
     this.camera.updateProjectionMatrix();
     this.focus.copy(w.pos);
     // town the player is in
     this.currentTown = this.townList.find((t) => t.center.distanceTo(w.pos) < t.R * 1.6) || null;
+    this.stealth.update(dt);
     // interactions
     const act = this.footContext();
     this.ui.prompt(act?.text || null);
@@ -1508,6 +1512,9 @@ export class Game {
   footContext() {
     const w = this.walker;
     if (w.dead || this.transitioning || this.boarding) return null;
+    // haystacks to hide in, wanted posters to tear down
+    const sc = this.stealth?.context();
+    if (sc) return sc;
     // doors
     for (const t of this.townList) {
       if (t.center.distanceTo(w.pos) > t.R * 2) continue;
@@ -1869,7 +1876,10 @@ export class Game {
     if (npc.dead) return false;
     if (npc.hostile) return true;
     if (npc.kind === 'guard' || npc.kind === 'soldier') {
+      // a town's watch must first recognise you (see stealth.js), and loses you when you're hidden
+      if (npc.town && this.stealth?.hidden) return false;
       if (npc.town?.alarm) return true;
+      if (npc.town) return !!npc.spotted;
       return npc.nation && npc.nation !== 'pirate' && this.state.wanted(npc.nation) >= 2;
     }
     return false;

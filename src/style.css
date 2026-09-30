@@ -185,3 +185,11 @@ table.trade button { font-size: 14px; padding: 2px 9px; margin-left: 3px; }
   .cols { grid-template-columns: 1fr; }
   #objective { max-width: 90vw; top: 70px; }
 }
+
+/* stealth: a guard's growing suspicion, and your state (blending in, hidden, pursued) */
+.stealth-layer { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+.stealth-mark { position: absolute; width: 14px; height: 20px; transform: translate(-50%, -100%); background: rgba(20,16,10,0.55); border: 1.5px solid #e8d9a8; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.stealth-mark i { position: absolute; left: 0; right: 0; bottom: 0; background: #f0c24a; }
+.stealth-mark.hot { border-color: #ff5a3a; }
+.stealth-mark.hot i { background: #e8412a; }
+.stealth-badge { position: fixed; top: 150px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 5; font: italic 16px Georgia, serif; color: #efe2bd; background: rgba(12,10,8,0.5); padding: 3px 14px; border-radius: 3px; display: none; }
