@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { mulberry32, clamp } from '../core/noise.js';
 import { props } from './props.js';
-import { flora, TREE_TYPES } from './flora.js';
+import { flora, TREE_TYPES, PALM_TYPES } from './flora.js';
 
 const CHUNK = 700;
 const DETAIL_CHUNK = 120; // ground detail (ferns, shells, stumps) is culled much closer
@@ -250,11 +250,23 @@ export class Vegetation {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), pv = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0), tiltAxis = new THREE.Vector3();
     const species = TREE_TYPES.filter((t) => flora.has(t));
+    const palmSpecies = PALM_TYPES.filter((t) => flora.has(t));
+    const PALM_SCALE = { coconut_palm: 1.9, palm_set: 1.25 };
     this.trees = {}; // species -> [[x,y,z,yaw,scale]] for the flora near-field
     const push = (type, x, y, z, rotY, scale, tilt = 0) => {
       if (plantScale[type]) scale *= plantScale[type];
       // real plants replace the old blob bushes
       if (type === 'bush' && plants.length) { const k = plants[Math.floor(((x * 0.37 + z * 0.61) % 1 + 1) % 1 * plants.length)]; return push(k, x, y, z, rotY, 0.8 + (scale - 0.6) * 0.3); }
+      if (type === 'palm' && palmSpecies.length) {
+        const sp = palmSpecies[Math.floor(((x * 7.31 + z * 3.17) % 1 + 1) % 1 * palmSpecies.length) % palmSpecies.length];
+        const entry = [x, y + 0.2, z, rotY, scale * PALM_SCALE[sp]];
+        (this.trees[sp] || (this.trees[sp] = [])).push(entry);
+        const key = Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
+        if (!buckets.has(key)) buckets.set(key, {});
+        const b = buckets.get(key);
+        (b['tree:' + sp] || (b['tree:' + sp] = [])).push(entry);
+        return;
+      }
       if (type === 'tree' && species.length) {
         const sp = species[Math.floor(((x * 12.9898 + z * 78.233) % 1 + 1) % 1 * species.length) % species.length];
         const entry = [x, y + 0.25, z, rotY, 0.7 + (scale - 0.75) / 0.75 * 0.5];
@@ -363,7 +375,7 @@ export class Vegetation {
       }
     }
 
-    if (species.length) flora.initNear(scene, this.trees, quality !== 'low');
+    if (species.length || palmSpecies.length) flora.initNear(scene, this.trees, quality !== 'low');
     this.counts = {};
     for (const b of buckets.values()) for (const k in b) this.counts[k] = (this.counts[k] || 0) + b[k].length;
     // build instanced meshes per chunk

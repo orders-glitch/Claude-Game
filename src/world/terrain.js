@@ -160,7 +160,7 @@ export class Terrain {
     let forest = smoothstep(0.38, 0.7, jun + n2 * 0.12);
     let grass = 1 - forest;
     grass *= 1 - sandT; forest *= 1 - sandT;
-    let rock = smoothstep(1.0, 1.6, slope + n2 * 0.15);
+    let rock = smoothstep(1.2, 2.0, slope + n2 * 0.15);
     if (is && h > is.peak * 0.8 && is.peak > 60) rock = Math.max(rock, 0.3);
     if (h < -2) rock = Math.max(rock, smoothstep(0.35, 0.7, slope)); // reef shelves
     let dirt = 0;

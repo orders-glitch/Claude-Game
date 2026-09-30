@@ -3,6 +3,7 @@
 // tree from the nearest of 8 pre-rendered directions, lit with baked normals so it still follows the sun.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { windUniforms } from './vegetation.js';
 
 const FRAMES = 8;
 const FRAME_PX = 256;
@@ -70,7 +71,7 @@ const IMPOSTOR_FRAG = /* glsl */ `
     n = normalize(vec3(n.x * cy + n.z * sy, n.y, -n.x * sy + n.z * cy));
     // wrapped diffuse: foliage transmits light, so the shadowed side never goes black
     float sun = clamp(dot(n, uSunDir) * 0.6 + 0.4, 0.0, 1.0);
-    vec3 amb = mix(uGround, uSky, n.y * 0.5 + 0.5) * 1.5;
+    vec3 amb = mix(uGround, uSky, n.y * 0.5 + 0.5) * 1.9;
     vec3 col = a.rgb * (amb + uSunCol * sun);
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
@@ -88,6 +89,29 @@ function dequantize(geo) {
     geo.setAttribute(name, new THREE.BufferAttribute(out, attr.itemSize));
   }
   return geo;
+}
+
+// trees and palms lean and shiver in the wind: displacement grows with height, phase varies per instance
+function sway(mat, name) {
+  const k = name.includes('palm') ? 0.004 : 0.0022;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = windUniforms.uTime;
+    shader.uniforms.uWind = windUniforms.uWind;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uWind;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec3 ip = instanceMatrix[3].xyz;
+        #else
+          vec3 ip = vec3(0.0);
+        #endif
+        float ph = ip.x * 0.11 + ip.z * 0.07;
+        float hh = max(position.y, 0.0);
+        float s = (sin(uTime * 1.1 + ph) * 0.55 + sin(uTime * 2.3 + ph * 1.7 + position.x) * 0.2) * uWind * ${k.toFixed(4)} * hh * hh;
+        transformed.x += s;
+        transformed.z += s * 0.6;`);
+  };
+  mat.customProgramCacheKey = () => 'flora_sway_' + k;
 }
 
 class Flora {
@@ -112,6 +136,7 @@ class Flora {
             material.color.setRGB(0.78, 1.0, 0.7); // lusher, tropical green
           }
           if (material.map) material.map.anisotropy = 4;
+          sway(material, name);
           parts.push({ geometry, material });
         });
         const box = new THREE.Box3();
@@ -125,7 +150,7 @@ class Flora {
   has(name) { return !!this.types[name]; }
 
   // Render 8 side views of each tree into albedo and normal atlases.
-  bakeImpostors(renderer, names = TREE_TYPES) {
+  bakeImpostors(renderer, names = [...TREE_TYPES, ...PALM_TYPES]) {
     for (const [name, T] of Object.entries(this.types)) {
       if (!names.includes(name)) continue;
       const w = T.radius * 2.1, h = T.height * 1.04;
@@ -160,7 +185,7 @@ class Flora {
         scene.traverse((o) => { if (o.userData.mats) o.material = o.userData.mats[key]; });
         renderer.setRenderTarget(rt);
         // albedo background: a dark leaf-ish colour so mip-mapped edges don't halo white
-        renderer.setClearColor(key === 'albedo' ? 0x2a3a1c : 0x80ff80, 0);
+        renderer.setClearColor(key === 'albedo' ? 0x56743a : 0x80ff80, 0);
         rt.scissorTest = false;
         renderer.setRenderTarget(rt);
         renderer.clear();
@@ -275,3 +300,5 @@ class Flora {
 
 export const flora = new Flora();
 export const TREE_TYPES = ['island_tree_01', 'island_tree_02', 'island_tree_03', 'tree_small_02'];
+// coconut palms (Sketchfab, CC-BY): a pair and a small grove, used as units
+export const PALM_TYPES = ['coconut_palm', 'palm_set'];
