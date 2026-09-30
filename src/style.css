@@ -84,6 +84,7 @@ kbd { font-family: var(--sc); background: #f5ead0; border: 1px solid #8a6e44; bo
 .toast { background: rgba(12,10,8,0.72); border-left: 3px solid var(--gold); padding: 7px 14px; font-size: 16px; animation: toastIn .25s ease-out; }
 .toast.warn { border-color: #d0582a; }
 .toast.good { border-color: #6aa84f; }
+.toast.mate { border-color: #8aa4b8; font-style: italic; }
 .toast.objective { border-color: #e8c35a; font-style: italic; }
 .toast.out { opacity: 0; transform: translateX(20px); transition: all .4s; }
 @keyframes toastIn { from { opacity: 0; transform: translateX(30px); } }

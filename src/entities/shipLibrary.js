@@ -300,7 +300,21 @@ class ShipLibrary {
         const box = new THREE.Box3();
         for (const p of parts) { p.geometry.computeBoundingBox(); box.union(p.geometry.boundingBox); }
         sailPivots(parts, cfg.bow < 0 ? 1 : -1);
-        this.models[name] = { parts, box, cfg };
+        // the hull's real half-breadth at the rail (the box also holds the yards and sails)
+        let hullHalf = 0;
+        for (const p of parts) {
+          if (p.sail) continue;
+          const pa = p.geometry.attributes.position;
+          for (let i = 0; i < pa.count; i += 3) { const y = pa.getY(i); if (y > cfg.deck - 0.3 && y < cfg.deck + 1.2) hullHalf = Math.max(hullHalf, Math.abs(pa.getX(i))); }
+        }
+        // and its length, from the sides of the hull at the rail (not the bowsprit or the boom)
+        let hz0 = Infinity, hz1 = -Infinity;
+        for (const p of parts) {
+          if (p.sail) continue;
+          const pa = p.geometry.attributes.position;
+          for (let i = 0; i < pa.count; i += 3) { const y = pa.getY(i), x = Math.abs(pa.getX(i)); if (y > cfg.deck - 0.3 && y < cfg.deck + 1.2 && x > hullHalf * 0.6) { const z = pa.getZ(i); hz0 = Math.min(hz0, z); hz1 = Math.max(hz1, z); } }
+        }
+        this.models[name] = { parts, box, cfg, hullHalf, hullZ: [hz0, hz1] };
       } catch (e) { /* optional: procedural ships are used instead */ }
     }));
     return this;
@@ -330,7 +344,7 @@ class ShipLibrary {
       inner.add(mesh);
       if (p.sail) sails = mesh;
     }
-    return { group, sails, uniforms, scale: s, box: M.box.clone().applyMatrix4(new THREE.Matrix4().makeScale(s, s, s)), cfg: M.cfg };
+    return { group, sails, uniforms, scale: s, box: M.box.clone().applyMatrix4(new THREE.Matrix4().makeScale(s, s, s)), cfg: M.cfg, hullHalf: M.hullHalf * s, hullZ: M.hullZ.map((z) => z * s * (M.cfg.bow < 0 ? -1 : 1)).sort((a, b) => a - b) };
   }
 }
 

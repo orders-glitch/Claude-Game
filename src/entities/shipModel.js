@@ -48,7 +48,7 @@ function buildScannedShip(cls, nation, opts) {
   group.add(masthead);
   return {
     group, sails: S.sails, sailUniforms: S.uniforms, gunPositions, lanterns: [], mastTops: [masthead.position.clone()], bsTip: new THREE.Vector3(0, deckY, S.box.min.z),
-    ensign, masthead, draft, deckY, sheer: () => deckY, length: L, beam, scanned: true,
+    ensign, masthead, draft, deckY, sheer: () => deckY, length: L, beam, scanned: true, deckHalf: Math.min(beam / 2, S.hullHalf || beam / 2) * 0.85, deckLen: S.hullZ ? S.hullZ[1] - S.hullZ[0] : L * 0.7, deckMid: S.hullZ ? (S.hullZ[0] + S.hullZ[1]) / 2 : 0,
     setFlag(kind) { ensign.material = flagMaterial(kind); masthead.material = flagMaterial(kind); },
   };
 }

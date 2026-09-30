@@ -423,6 +423,17 @@ const TAVERN_TUNE = [
   [78, 2], [74, 1], [76, 2], [78, 1], [79, 6],
 ];
 
+// A hauling shanty (an original tune in the old style): the shantyman sings the call, the crew roar back the
+// chorus and stamp the beat as they haul. [midi, eighths, 0 = shantyman / 1 = all hands]
+const SHANTY_TUNE = [
+  [69, 2, 0], [74, 1, 0], [74, 1, 0], [74, 2, 0], [72, 2, 0], [69, 2, 0], [67, 2, 0], [69, 4, 0],
+  [74, 2, 1], [74, 2, 1], [72, 2, 1], [69, 2, 1], [67, 4, 1], [62, 4, 1],
+  [69, 2, 0], [72, 1, 0], [72, 1, 0], [72, 2, 0], [74, 2, 0], [76, 2, 0], [74, 2, 0], [72, 4, 0],
+  [74, 2, 1], [74, 2, 1], [72, 2, 1], [69, 2, 1], [65, 2, 1], [64, 2, 1], [62, 4, 1],
+  [74, 2, 0], [76, 1, 0], [77, 1, 0], [76, 2, 0], [74, 2, 0], [72, 2, 0], [69, 2, 0], [72, 4, 0],
+  [74, 2, 1], [74, 2, 1], [72, 2, 1], [69, 2, 1], [67, 4, 1], [62, 4, 1],
+];
+
 class Music {
   constructor(audio) {
     this.a = audio;
@@ -458,7 +469,9 @@ class Music {
       if (this.mode !== 'none') this.gain.gain.setTargetAtTime(1, t, 1.2);
     }
     if (this.mode === 'none') return;
-    const cfg = this.mode === 'battle'
+    const cfg = this.mode === 'shanty'
+      ? { tune: SHANTY_TUNE, eighth: 0.2, chords: [50, 50, 48, 50, 50, 45, 50, 50], bar: 8, drums: 'stamp', voice: true }
+      : this.mode === 'battle'
       ? { tune: BATTLE_TUNE, eighth: 0.16, chords: [38, 38, 41, 36], bar: 8, drums: true, lead: 'sawtooth', leadGain: 0.05 }
       : this.mode === 'tavern'
         ? { tune: TAVERN_TUNE, eighth: 0.17, chords: [43, 43, 48, 50], bar: 6, drums: 'bodhran', lead: 'square', leadGain: 0.035 }
@@ -467,10 +480,14 @@ class Music {
       const time = this.nextTime;
       // lead line
       if (this.noteLeft <= 0) {
-        const [n, len] = cfg.tune[this.noteIdx % cfg.tune.length];
+        const [n, len, part] = cfg.tune[this.noteIdx % cfg.tune.length];
         this.noteIdx++;
         this.noteLeft = len;
-        this.fiddle(midi(n), len * cfg.eighth * 0.95, time, cfg.lead, cfg.leadGain);
+        if (cfg.voice) {
+          // the shantyman alone, then all hands in unison and an octave below
+          if (part) { this.voice(midi(n), len * cfg.eighth * 0.95, time, 5, 0.05); this.voice(midi(n - 12), len * cfg.eighth * 0.95, time, 3, 0.05); }
+          else this.voice(midi(n), len * cfg.eighth * 0.95, time, 1, 0.07);
+        } else this.fiddle(midi(n), len * cfg.eighth * 0.95, time, cfg.lead, cfg.leadGain);
       }
       this.noteLeft--;
       // bar-level accompaniment
@@ -489,12 +506,43 @@ class Music {
         if (this.step % 8 === 6) this.snare(time);
       } else if (cfg.drums === 'bodhran') {
         this.drum(time, this.step % 3 === 0 ? 0.6 : 0.25);
+      } else if (cfg.drums === 'stamp') {
+        // boots on the deck on the beat, the heavy one as they heave
+        if (this.step % 4 === 0) this.drum(time, this.step % 8 === 0 ? 0.9 : 0.5);
       } else if (cfg.drums === 'soft' && this.step % 6 === 0) {
         this.drum(time, 0.3);
       }
       this.step++;
       this.nextTime += cfg.eighth;
     }
+  }
+
+  // sung notes: a few rough voices (slightly out of tune with each other) through the formants of an open 'ah'
+  voice(f, dur, time, n, gain) {
+    const ctx = this.ctx;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, time);
+    out.gain.exponentialRampToValueAtTime(gain, time + 0.07);
+    out.gain.setValueAtTime(gain * 0.85, time + dur * 0.7);
+    out.gain.exponentialRampToValueAtTime(0.0001, time + dur + 0.18);
+    const f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 730; f1.Q.value = 5;
+    const f2 = ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 1150; f2.Q.value = 6;
+    const f3 = ctx.createBiquadFilter(); f3.type = 'lowpass'; f3.frequency.value = 2600;
+    const mix = ctx.createGain(); mix.gain.value = 1;
+    f1.connect(out); f2.connect(out); f3.connect(mix); mix.gain.value = 0.25; mix.connect(out);
+    out.connect(this.gain);
+    const nodes = [];
+    for (let k = 0; k < n; k++) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.value = f * (1 + (Math.random() - 0.5) * 0.012 * (n > 1 ? 1 : 0.3));
+      const vib = ctx.createOscillator(); vib.frequency.value = 4.8 + Math.random();
+      const vg = ctx.createGain(); vg.gain.value = f * 0.007;
+      vib.connect(vg).connect(o.frequency);
+      const g = ctx.createGain(); g.gain.value = 1 / Math.sqrt(n);
+      o.connect(g); g.connect(f1); g.connect(f2); g.connect(f3);
+      nodes.push(o, vib);
+    }
+    for (const x of nodes) { x.start(time); x.stop(time + dur + 0.25); }
   }
 
   fiddle(f, dur, time, type, gain) {

@@ -408,6 +408,7 @@ export class Crowd {
     this.meshes = {};
     this.meshesLo = {};
     this.agents = [];
+    this.crewAgents = [];
     this.town = null;
     this.ready = false;
   }
@@ -591,22 +592,31 @@ export class Crowd {
   }
 
   update(dt, camPos, player, hours) {
-    if (!this.ready || !this.town) return;
+    if (!this.ready) return;
     const town = this.town;
-    const far = town.center.distanceTo(camPos) > town.R * 3;
+    const far = !town || town.center.distanceTo(camPos) > town.R * 3;
     const all = [...Object.values(this.meshes), ...Object.values(this.meshesLo)];
-    for (const m of all) { m.visible = !far; m._n = 0; }
-    if (far) return;
-    const G = town.crowdGraph;
-    const T = town.terrain;
+    for (const m of all) { m.visible = true; m._n = 0; }
+    const G = town?.crowdGraph;
+    const T = town?.terrain;
     const night = hours < 5.5 || hours > 21.5;
     const dim = { m4: new THREE.Matrix4(), q: new THREE.Quaternion(), up: new THREE.Vector3(0, 1, 0), s: new THREE.Vector3(1, 1, 1), p: new THREE.Vector3() };
     let i = 0;
-    for (const a of this.agents) {
+    // the townsfolk when the town is near, and your own crew aboard wherever she is
+    const list = far ? this.crewAgents : this.agents.concat(this.crewAgents);
+    if (this.crewAgents.length) this.crewAgents[0].crew.ship.group.updateMatrixWorld(true); // this frame's deck, not the last one drawn
+    for (const a of list) {
       i++;
       // at night most people are indoors
-      const hidden = night && !(a.night || a.lead?.night) && (i % (town.port.style === 'shanty' ? 5 : 4) !== 0) && !(town.port.style === 'shanty' && i % 5 < 3); // the Brethren carouse till dawn
-      if (a.mode === 'ride') {
+      const hidden = a.mode !== 'crew' && night && !(a.night || a.lead?.night) && (i % (town.port.style === 'shanty' ? 5 : 4) !== 0) && !(town.port.style === 'shanty' && i % 5 < 3); // the Brethren carouse till dawn
+      if (a.mode === 'crew') {
+        // standing to their station on deck, riding the ship's motion
+        const S = a.crew.ship;
+        if (S.sunk) continue;
+        const p = a.crew.local.clone().applyMatrix4(S.model.group.matrixWorld);
+        a.pos.copy(p); a.yaw = S.heading + a.crew.face; a.rideY = p.y;
+        a.anim = a.crew.anim || 'idle';
+      } else if (a.mode === 'ride') {
         const g = a.ride.bt.group;
         const p = a.ride.seat.clone().applyMatrix4(g.matrixWorld);
         a.pos.copy(p); a.yaw = a.ride.bt.yaw; a.rideY = p.y - 0.05;
@@ -659,8 +669,9 @@ export class Crowd {
       // full detail close by, the coarse mesh beyond
       const d2 = (a.pos.x - camPos.x) ** 2 + (a.pos.z - camPos.z) ** 2;
       const mesh = d2 < 28 * 28 ? this.meshes[a.look] : this.meshesLo[a.look];
+      if (mesh._n >= mesh.instanceMatrix.count) continue;
       const k = mesh._n++;
-      const y = a.mode === 'ride' ? a.rideY : a.spot ? a.spot.pos.y : T.height(a.pos.x, a.pos.z);
+      const y = a.mode === 'ride' || a.mode === 'crew' ? a.rideY : a.spot ? a.spot.pos.y : T.height(a.pos.x, a.pos.z);
       dim.q.setFromAxisAngle(dim.up, a.yaw);
       dim.m4.compose(dim.p.set(a.pos.x, y, a.pos.z), dim.q, dim.s);
       mesh.setMatrixAt(k, dim.m4);
@@ -672,7 +683,53 @@ export class Crowd {
       m.instanceMatrix.needsUpdate = true;
       for (const k of ['iAnim', 'iCoat', 'iSkin', 'iHair', 'iLinen', 'iHat']) m.geometry.attributes[k].needsUpdate = true;
     }
-    this.recycle(dt, player || camPos, camPos);
+    if (!far) this.recycle(dt, player || camPos, camPos);
+  }
+
+  // Your ship's company, at their stations on deck: gun crews by the guns, the helmsman aft, a lookout in the
+  // bows, hands at the rails for the sheets and braces, and the watch below taking the air amidships.
+  setShipCrew(ship, n) {
+    this.crewAgents = [];
+    if (!this.ready || !ship) return;
+    // the deck as it really is on this hull: its half-breadth at the rail and the length inside the stem and stern
+    const M = ship.model, dy = M.deckY;
+    const B = (M.deckHalf || ship.cls.beam * 0.4) * 2.2, L = M.deckLen || ship.cls.length * 0.9;
+    const pal = POP.nassau[0][2];
+    const looks = ['m_bandana', 'm_bare', 'm_straw', 'm_bandana', 'm_coat_bare'].filter((k) => this.looks[k]);
+    const add = (role, x, z, face, anim) => {
+      const look = looks[this.crewAgents.length % looks.length];
+      // keep inside the hull: not out on the bowsprit or over the counter, and closer in where she narrows
+      z = Math.max(-L * 0.36, Math.min(L * 0.38, z));
+      x *= 1 - Math.min(0.6, Math.max(0, (Math.abs(z) - L * 0.15) / (L * 0.35)));
+      z += M.deckMid || 0;
+      this.crewAgents.push({
+        look, slot: 900 + this.crewAgents.length, mode: 'crew', crew: { ship, role, local: new THREE.Vector3(x, dy, z), face, anim, base: anim },
+        coat: new THREE.Color(pick(pal.coat)), skin: new THREE.Color(pick(pal.skin)), hair: new THREE.Color(pick(HAIRC)), linen: new THREE.Color(pick(LINEN)), hat: new THREE.Color(pick(pal.hat || ['#2a241c'])),
+        pos: new THREE.Vector3(), yaw: 0, speed: 1, phase: Math.random(), anim,
+      });
+    };
+    add('helm', 0, L * 0.3, 0, 'idle');
+    add('lookout', 0, -L * 0.28, 0, 'idle');
+    // gun crews: one by every other gun
+    const guns = M.gunPositions || [];
+    guns.forEach((g, k) => { if (k % 2 === 0 && this.crewAgents.length < n) add('gun', Math.sign(g.x) * B * 0.3, g.z * 0.9, g.x > 0 ? -Math.PI / 2 : Math.PI / 2, 'idle'); });
+    // hands at the rails for the sheets and braces, facing inboard
+    for (let k = 0; this.crewAgents.length < n && k < 6; k++) {
+      const sd = k % 2 ? 1 : -1;
+      add('rail', sd * B * 0.36, (k / 6 - 0.4) * L * 0.6, sd > 0 ? Math.PI / 2 : -Math.PI / 2, 'idle');
+    }
+    // the watch below, taking the air amidships
+    for (let k = 0; this.crewAgents.length < n; k++) add('idle', (Math.random() - 0.5) * B * 0.4, (Math.random() - 0.5) * L * 0.4, Math.random() * 6.28, pick(['talk', 'sit', 'idle']));
+  }
+
+  // what the crew are about: hauling when sail is made or shortened, at the guns in action
+  crewState(st) {
+    for (const a of this.crewAgents) {
+      const r = a.crew.role;
+      if (r === 'rail') a.crew.anim = st.hauling ? 'work' : 'idle';
+      else if (r === 'gun') a.crew.anim = st.combat ? (st.reloading[a.crew.local.x > 0 ? 'starboard' : 'port'] ? 'work' : 'idle') : (st.hauling ? 'idle' : 'sit');
+      else if (r === 'idle') a.crew.anim = st.combat ? 'idle' : st.hauling ? 'work' : a.crew.base;
+    }
   }
 
   nearCount(p, r) {

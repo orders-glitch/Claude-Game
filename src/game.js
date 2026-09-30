@@ -28,6 +28,7 @@ import { sharedMaterials } from './world/builder.js';
 import { Ship, BALL_SPEED, GRAVITY } from './entities/ship.js';
 import { AMMO } from './game/data.js';
 import { Boarding } from './game/boarding.js';
+import { FirstMate } from './game/mate.js';
 import { ShipAI } from './entities/shipAI.js';
 import { shipTime, shipMaterials } from './entities/shipModel.js';
 import { Effects } from './entities/effects.js';
@@ -314,6 +315,7 @@ export class Game {
 
   startSession(fromSave) {
     this.clearWorld();
+    this.mate = null;
     this.ui.hideTitle();
     this.audio.init();
     const s = this.state;
@@ -363,7 +365,7 @@ export class Game {
     const ship = new Ship(this, cls, 'pirate', {
       isPlayer: true, name: s.shipName, x, z, heading, flag: s.flag || 'pirate',
       strength: 1 + 0.25 * s.upgrades.hull, hull: s.ship.hull, sails: s.ship.sails, crew: s.ship.crew,
-      gunDamage: 1 + 0.35 * s.upgrades.guns, gunRange: 1 + 0.07 * s.upgrades.guns, sailTint: '#e6dcc4', crewFigures: 6,
+      gunDamage: 1 + 0.35 * s.upgrades.guns, gunRange: 1 + 0.07 * s.upgrades.guns, sailTint: '#e6dcc4', crewFigures: this.crowd?.ready ? 0 : 6,
     });
     ship.id = PLAYER_ID;
     ship.speedMult = 1 + 0.07 * s.upgrades.sails;
@@ -680,6 +682,13 @@ export class Game {
     this.wildlife.update(dt, this.focus, this.sky.nightFactor + this.sky.storm * 0.8);
     if (this.crowd) {
       const cp = this.camera.position;
+      // your ship's company aboard: mustered when she changes or her crew rises or falls, and set to work
+      const p = this.playerShip;
+      if (p && this.mode !== 'title') {
+        const want = clamp(Math.round(p.crew / 6), 3, 14);
+        if (this.crowd.crewShip !== p || Math.abs((this.crowd.crewN || 0) - want) >= 2) { this.crowd.setShipCrew(p, want); this.crowd.crewShip = p; this.crowd.crewN = want; }
+        this.crowd.crewState({ hauling: Math.abs(p.sailSet - (p.anchored ? 0 : p.sailTarget / 2)) > 0.04, combat: this.combatT > 0 || this.hostilesNear(500), reloading: p.reload });
+      }
       const ct = this.townList.find((t) => t.center.distanceTo(cp) < t.R * 2.6) || null;
       this.crowd.setTown(ct, this);
       this.crowd.update(dt, cp, this.mode === 'foot' && this.walker ? this.walker.pos : null, this.state.hours);
@@ -756,11 +765,9 @@ export class Game {
     if (inp.hit('KeyW')) { p.sailTarget = Math.min(2, p.sailTarget + 1); p.anchored = false; this.audio.ui('click'); }
     if (inp.hit('KeyS')) { p.sailTarget = Math.max(0, p.sailTarget - 1); this.audio.ui('click'); }
     p.rudderInput = (inp.down('KeyA') ? 1 : 0) - (inp.down('KeyD') ? 1 : 0);
-    // caught head to wind with sail set: tell the captain how to get out of irons
-    if (p.sailSet > 0.4 && p.effTheta > 2.45 && Math.abs(p.speed) < 1.2) {
-      this.ironsT = (this.ironsT || 0) + dt;
-      if (this.ironsT > 2.5 && !this.ironsHinted) { this.ironsHinted = true; this.ui.toast('In irons — she\'s head to wind. Put the helm over with [A] or [D] and hold it till the sails fill.', 'warn', 6000); }
-    } else { this.ironsT = 0; if (p.speed > 3) this.ironsHinted = false; }
+    // the first mate's lookout: sails, shoals, wind, guns, damage, irons
+    if (!this.mate) this.mate = new FirstMate(this);
+    this.mate.update(dt);
     if (inp.hit('KeyR')) {
       p.anchored = !p.anchored;
       if (p.anchored) p.sailTarget = 0;
@@ -2031,7 +2038,15 @@ export class Game {
     // music
     let music = 'none';
     if (this.mode === 'title') music = 'sail';
-    else if (this.mode === 'sail') music = this.hostilesNear(650) || this.combatT > 0 ? 'battle' : 'sail';
+    else if (this.mode === 'sail') {
+      // the crew strike up a shanty as they haul on the halyards, and now and then on a long passage
+      const p = this.playerShip;
+      if (Math.abs(p.sailSet - (p.anchored ? 0 : p.sailTarget / 2)) > 0.04) this.shantyT = Math.max(this.shantyT || 0, 40);
+      this.passageT = (this.passageT || 0) + dt;
+      if (this.passageT > 240) { this.passageT = 0; this.shantyT = 55; }
+      this.shantyT = Math.max(0, (this.shantyT || 0) - dt);
+      music = this.hostilesNear(650) || this.combatT > 0 ? 'battle' : this.shantyT > 0 ? 'shanty' : 'sail';
+    }
     else if (this.mode === 'foot') music = this.combatT > 0 ? 'battle' : 'none';
     if (this.audio.musicMode !== 'tavern' || !this.ui.anyModal()) this.audio.setMusic(music);
   }
