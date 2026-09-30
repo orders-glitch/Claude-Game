@@ -107,7 +107,6 @@ async function bakeLook(look) {
     const key = o.geometry.uuid + (o.isSkinnedMesh ? '' : o.uuid);
     if (seen.has(key)) return; // (the brows come twice)
     seen.add(key);
-    if (/Eyes/.test(mat.name) && o.isSkinnedMesh) return;
     parts.push({ o, mat });
   });
   // build the merged, simplified geometry: per part keep a vertex subset
@@ -122,7 +121,8 @@ async function bakeLook(look) {
     if (!index) { index = new Uint32Array(g.attributes.position.count); for (let i = 0; i < index.length; i++) index[i] = i; }
     let keep = new Uint32Array(index);
     if (P.o.isSkinnedMesh && index.length > 900) {
-      const ratio = /Hair|Eyebrows/.test(P.o.name + P.mat.name) ? 0.4 : /Ranger/.test(P.mat.name) ? 0.2 : 0.3;
+      // faces keep most of their detail; clothes and hair are simplified harder
+      const ratio = /Regular|Superhero/.test(P.mat.name) ? 0.6 : /Hair|Eyebrows/.test(P.o.name + P.mat.name) ? 0.5 : /Ranger/.test(P.mat.name) ? 0.32 : 0.45;
       const [out] = MeshoptSimplifier.simplify(new Uint32Array(index), pos, 3, Math.floor((index.length * ratio) / 3) * 3, 0.06, []);
       keep = out;
     }
@@ -135,6 +135,10 @@ async function bakeLook(look) {
   const N = vtx.length;
   // colours and flags from the textures
   const col = new Float32Array(N * 3), flag = new Float32Array(N), vid = new Float32Array(N);
+  // the characters' own textures (up to four per look), sampled in the shader for close-up detail
+  const maps = [];
+  for (const P of parts) if (P.mat.map && P.o.geometry.attributes.uv && !maps.includes(P.mat.map) && maps.length < 4) maps.push(P.mat.map);
+  const buv = new Float32Array(N * 2), bmap = new Float32Array(N).fill(-1);
   let skinSum = [0, 0, 0], skinN = 0;
   for (let k = 0; k < N; k++) {
     const { P, i } = vtx[k];
@@ -149,15 +153,23 @@ async function bakeLook(look) {
       const o = (y * px.w + x) * 4;
       r = lin(px.d[o]); g = lin(px.d[o + 1]); b = lin(px.d[o + 2]);
     }
+    if (uv && maps.includes(mat.map)) { buv[k * 2] = uv.getX(i); buv[k * 2 + 1] = uv.getY(i); bmap[k] = maps.indexOf(mat.map); }
     let f = 0;
-    if (!P.o.isSkinnedMesh) { f = 5; r = g = b = 0.8; }
+    if (!P.o.isSkinnedMesh) {
+      // hats carry no texture: shade their folds and brims from the shape so a cap doesn't read as a helmet
+      f = 5;
+      const nm = P.o.geometry.attributes.normal;
+      const ny = nm ? nm.getY(i) : 1, pa = P.o.geometry.attributes.position;
+      const wob = 0.5 + 0.5 * Math.sin(pa.getX(i) * 90 + pa.getZ(i) * 60) * Math.sin(pa.getY(i) * 120);
+      r = g = b = 0.62 + 0.22 * Math.max(0, ny) + 0.12 * wob;
+    }
     else if (/Regular|Superhero/.test(name)) { f = 2; skinSum[0] += r; skinSum[1] += g; skinSum[2] += b; skinN++; }
     else if (/Hair/.test(name)) f = 3;
     else if (/Ranger|Peasant/.test(name)) {
       const [h, s] = hueOf(Math.sqrt(r), Math.sqrt(g), Math.sqrt(b));
       const [h2, s2, v2] = hueOf(Math.sqrt(r), Math.sqrt(g), Math.sqrt(b));
       // dyed cloth (olive greens and browns) takes the person's colours; pale linen is tinted; dark leather stays
-      f = v2 < 0.14 ? 0 : h2 > 0.06 && h2 < 0.5 && s2 > 0.25 ? 1 : 4;
+      f = bmap[k] >= 0 ? 6 : v2 < 0.14 ? 0 : h2 > 0.06 && h2 < 0.5 && s2 > 0.25 ? 1 : 4; // 6: decided per texel
       void h; void s;
     }
     col[k * 3] = r; col[k * 3 + 1] = g; col[k * 3 + 2] = b; flag[k] = f;
@@ -245,18 +257,35 @@ async function bakeLook(look) {
   const rest = new Float32Array(N * 3);
   for (let k = 0; k < N; k++) { rest[k * 3] = posData[k * 4]; rest[k * 3 + 1] = posData[k * 4 + 1]; rest[k * 3 + 2] = posData[k * 4 + 2]; }
   geo.setAttribute('position', new THREE.BufferAttribute(rest, 3));
-  geo.setAttribute('bcol', new THREE.BufferAttribute(col, 3));
-  geo.setAttribute('bflag', new THREE.BufferAttribute(flag, 1));
+  // packed to stay under the 16 vertex attributes (the instanced colours and matrix take ten)
+  const bcol = new Float32Array(N * 4), btex = new Float32Array(N * 3);
+  for (let k = 0; k < N; k++) {
+    bcol[k * 4] = col[k * 3]; bcol[k * 4 + 1] = col[k * 3 + 1]; bcol[k * 4 + 2] = col[k * 3 + 2]; bcol[k * 4 + 3] = flag[k];
+    btex[k * 3] = buv[k * 2]; btex[k * 3 + 1] = buv[k * 2 + 1]; btex[k * 3 + 2] = bmap[k];
+  }
+  geo.setAttribute('bcol', new THREE.BufferAttribute(bcol, 4));
   geo.setAttribute('vid', new THREE.BufferAttribute(vid, 1));
+  geo.setAttribute('btex', new THREE.BufferAttribute(btex, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  return { look, geo, posTex, nrmTex, rows, clipInfo, skinAvg, verts: N };
+  // pack the look's textures into one 2 x 2 atlas (one sampler: shadowed materials are short of texture units)
+  let atlas = null;
+  if (maps.length) {
+    const c = document.createElement('canvas'); c.width = c.height = 1024;
+    const ctx = c.getContext('2d');
+    maps.forEach((m, k) => { if (m.image) ctx.drawImage(m.image, (k % 2) * 512, Math.floor(k / 2) * 512, 512, 512); });
+    atlas = new THREE.CanvasTexture(c);
+    atlas.colorSpace = THREE.SRGBColorSpace;
+    atlas.flipY = false;
+    atlas.anisotropy = 4;
+  }
+  return { look, geo, posTex, nrmTex, rows, clipInfo, skinAvg, verts: N, atlas };
 }
 
 // shader chunks shared by the colour and shadow materials
 const VERT_HEAD = `
   uniform sampler2D uVatPos; uniform sampler2D uVatNrm; uniform float uRows;
-  attribute float vid; attribute vec3 bcol; attribute float bflag;
+  attribute float vid; attribute vec4 bcol; // rgb + colour flag
   attribute vec4 iAnim; // frame start, frame count, phase 0..1, blend to next frame
   attribute vec3 iCoat; attribute vec3 iSkin; attribute vec3 iHair; attribute vec3 iLinen; attribute vec3 iHat;
   varying vec3 vCrowdCol;
@@ -291,18 +320,50 @@ function crowdMaterial(v) {
           vec3 objectTangent = vec3(1.0, 0.0, 0.0);
         #endif`)
       .replace('#include <begin_vertex>', VERT_BODY + `
-        vec3 c = bcol;
+        vec3 c = bcol.rgb; float bflag = bcol.a;
         float l = dot(c, vec3(0.299, 0.587, 0.114));
         if (bflag < 0.5) {}
         else if (bflag < 1.5) c = iCoat * clamp(l * 2.2, 0.3, 1.0 + (1.0 - dot(iCoat, vec3(0.33))) * 0.4);
         else if (bflag < 2.5) c = c * iSkin / max(uSkinAvg, vec3(0.02));
         else if (bflag < 3.5) c = iHair * clamp(l * 3.0, 0.4, 1.6);
         else if (bflag < 4.5) c = c * iLinen;
-        else c = iHat;
-        vCrowdCol = c;`);
+        else if (bflag < 5.5) c = iHat * c.r * 1.2;
+        vCrowdCol = c;
+        vUv2 = btex.xy; vMap = btex.z; vFlag = bflag;
+        vCoat = iCoat; vSkin = iSkin; vHair = iHair; vLinen = iLinen;`);
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 btex;\nvarying vec2 vUv2; varying float vMap; varying float vFlag; varying vec3 vCoat; varying vec3 vSkin; varying vec3 vHair; varying vec3 vLinen;');
+    shader.uniforms.uAtlas = { value: v.atlas };
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vCrowdCol;')
-      .replace('#include <color_fragment>', 'diffuseColor.rgb *= vCrowdCol;');
+      .replace('#include <common>', `#include <common>
+        varying vec3 vCrowdCol; varying vec2 vUv2; varying float vMap; varying float vFlag;
+        varying vec3 vCoat; varying vec3 vSkin; varying vec3 vHair; varying vec3 vLinen;
+        uniform sampler2D uAtlas; uniform vec3 uSkinAvg;`)
+      .replace('#include <color_fragment>', `
+        vec3 cc = vCrowdCol;
+        if (vMap > -0.5) {
+          float cell = floor(vMap + 0.5);
+          vec2 auv = (clamp(fract(vUv2), 0.002, 0.998) + vec2(mod(cell, 2.0), floor(cell / 2.0))) * 0.5;
+          vec3 tex = texture2D(uAtlas, auv).rgb;
+          float l = dot(tex, vec3(0.299, 0.587, 0.114));
+          if (vFlag > 1.5 && vFlag < 2.5) cc = tex * vSkin / max(uSkinAvg, vec3(0.02));
+          else if (vFlag > 2.5 && vFlag < 3.5) cc = vHair * clamp(l * 3.0, 0.3, 1.6);
+          else if (vFlag > 4.5 && vFlag < 5.5) cc = vCrowdCol * clamp(l * 2.4, 0.45, 1.15); // hats: their weave and folds, in this person's colour
+          else if (vFlag > 5.5) {
+            // outfit: the dyed (olive) cloth takes this person's colour, linen is tinted, leather stays
+            // classify on a blurred sample so the dye follows whole panels of cloth, not single texels
+            vec3 sr = sqrt(max(texture2D(uAtlas, auv, 3.0).rgb, vec3(0.0)));
+            float mx = max(sr.r, max(sr.g, sr.b)), mn = min(sr.r, min(sr.g, sr.b)), d = mx - mn;
+            float h = 0.0;
+            if (d > 1e-4) {
+              if (mx == sr.r) h = mod((sr.g - sr.b) / d, 6.0); else if (mx == sr.g) h = (sr.b - sr.r) / d + 2.0; else h = (sr.r - sr.g) / d + 4.0;
+              h /= 6.0;
+            }
+            float cloth = smoothstep(0.03, 0.08, h) * smoothstep(0.55, 0.45, h) * smoothstep(0.15, 0.3, d / max(mx, 1e-4)) * smoothstep(0.08, 0.18, mx);
+            cc = mix(tex * mix(vec3(1.0), vLinen, step(0.45, mx)), vCoat * clamp(l * 2.2, 0.3, 1.0 + (1.0 - dot(vCoat, vec3(0.33))) * 0.4), cloth);
+          }
+          else cc = tex;
+        }
+        diffuseColor.rgb *= cc;`);
   };
   mat.customProgramCacheKey = () => 'crowd';
   return mat;

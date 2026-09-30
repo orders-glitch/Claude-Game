@@ -14,7 +14,7 @@ export function T(x = 0, y = 0, z = 0, ry = 0, sx = 1, sy = 1, sz = 1, rx = 0, r
   return new THREE.Matrix4().compose(_p, _q, _s);
 }
 
-export const UV_SCALE = { wall: 0.18, wood: 0.25, roof: 0.2, thatch: 0.18, stone: 0.16, clap: 0.2, brick: 0.3, shingle: 0.3, cobble: 0.2, default: 0.25 };
+export const UV_SCALE = { wall: 0.18, wood: 0.25, roof: 0.2, thatch: 0.18, stone: 0.16, clap: 0.2, brick: 0.3, shingle: 0.3, cobble: 0.2, paving: 0.2, road: 0.14, default: 0.25 };
 
 // how much each material darkens at its foot
 const GRIME = { wall: 0.3, brick: 0.25, stone: 0.28, clap: 0.22 };
@@ -116,8 +116,8 @@ export function hipRoofGeometry(w, d, h, o = 0.6) {
 
 // Photographic building materials (Poly Haven, CC0; tools/build-textures.mjs). Each photo is normalised to a
 // neutral average so the per-building vertex colours still paint the town's palette on top of it.
-const PHOTO = { wall: 'clay_plaster', clap: 'brown_planks_03', wood: 'brown_planks_09', roof: 'clay_roof_tiles_02', stone: 'coral_fort_wall_01', brick: 'brick_4', shingle: 'grey_roof_01', cobble: 'cobblestone_large_01' };
-const PHOTO_SCALE = { wall: 0.42, clap: 0.4, wood: 0.5, roof: 0.45, stone: 0.3, brick: 0.5, shingle: 0.5, cobble: 0.25 };
+const PHOTO = { wall: 'clay_plaster', clap: 'brown_planks_03', wood: 'brown_planks_09', roof: 'clay_roof_tiles_02', stone: 'coral_fort_wall_01', brick: 'brick_4', shingle: 'grey_roof_01', cobble: 'cobblestone_large_01', paving: 'cobblestone_floor_08', road: 'rocky_trail_02' };
+const PHOTO_SCALE = { wall: 0.42, clap: 0.4, wood: 0.5, roof: 0.45, stone: 0.3, brick: 0.5, shingle: 0.5, cobble: 0.25, paving: 0.3, road: 0.14 };
 const photo = {};
 export async function loadTownTextures(base = './textures/town/') {
   const loader = new THREE.TextureLoader();
@@ -158,6 +158,8 @@ export function sharedMaterials() {
     brick: ph('brick', stoneTexture, { roughness: 0.95 }),
     shingle: ph('shingle', roofTileTexture, { roughness: 0.9, side: THREE.DoubleSide }),
     cobble: ph('cobble', stoneTexture, { roughness: 0.95 }),
+    paving: ph('paving', stoneTexture, { roughness: 0.95 }),
+    road: ph('road', stoneTexture, { roughness: 1 }),
     cloth: std({ roughness: 1, side: THREE.DoubleSide }),
     metal: std({ roughness: 0.5, metalness: 0.6 }),
     plain: std({}),

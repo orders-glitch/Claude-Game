@@ -121,6 +121,21 @@ export class CityKit {
         }
       }
     }
+    // the street surfaces between the blocks
+    if (g.pave) {
+      const [kind, col, litter] = g.pave;
+      const u0 = g.i[0] * (g.bu + g.su) - (g.bu + g.su) / 2, u1 = (g.i[1] + 1) * (g.bu + g.su) - (g.bu + g.su) / 2;
+      const v0 = g.j[0] * (g.bv + g.sv) - (g.bv + g.sv) / 2, v1 = (g.j[1] + 1) * (g.bv + g.sv) - (g.bv + g.sv) / 2;
+      const P = (u, v) => [o.a + U.a * u + V.a * v, o.b + U.b * u + V.b * v];
+      for (let i = g.i[0]; i <= g.i[1] + 1; i++) {
+        const cu = i * (g.bu + g.su) - (g.bu + g.su) / 2;
+        this.pave(...P(cu, v0 - g.sv / 2), ...P(cu, v1 + g.sv / 2), g.su + 0.6, kind, col, litter);
+      }
+      for (let j = g.j[0]; j <= g.j[1] + 1; j++) {
+        const cv = j * (g.bv + g.sv) - (g.bv + g.sv) / 2;
+        this.pave(...P(u0 - g.su / 2, cv), ...P(u1 + g.su / 2, cv), g.sv + 0.6, kind, col, litter);
+      }
+    }
     // pedestrians walk the streets between the blocks
     const step = 14;
     for (let i = g.i[0]; i <= g.i[1] + 1; i++) {
@@ -147,24 +162,26 @@ export class CityKit {
     }
   }
 
-  // an ox cart or handcart, loaded, shafts down
+  // a handcart or mule cart standing loaded, shafts down (a light two-wheeler, about 1.5 m across)
   cart(x, z, bearing, load = 'barrels') {
     const t = this.t, B = this.B, rnd = this.rnd;
     const { a, b } = this.L(x, z);
     const r = this.rot(bearing);
-    if (!this.free(a, b, 1.3, 2.6, r)) return;
+    if (!this.free(a, b, 1.0, 2.1, r)) return;
+    // not in the middle of a street where it would block the way
+    for (const n of t.streetNodes) if ((n.x - t.toWorld(a, b).x) ** 2 + (n.z - t.toWorld(a, b).z) ** 2 < 2.5 * 2.5) return;
     const c = Math.cos(r), s = Math.sin(r);
     const P = (u, v) => [a + u * c + v * s, b - u * s + v * c];
     const y = t.groundAt(a, b);
-    B.box('wood', 1.9, 0.14, 3, T(a, y + 1.05, b, r, 1, 1, 1, 0.06), '#7a5a3a');
-    for (const u of [-1, 1]) { const [pa, pb] = P(u * 0.95, 0); B.box('wood', 0.08, 0.45, 3, T(pa, y + 1.3, pb, r, 1, 1, 1, 0.06), '#6a4a30'); }
-    for (const u of [-1.1, 1.1]) { const [pa, pb] = P(u, 0.3); B.cyl('wood', 0.62, 0.62, 0.14, 12, T(pa, y + 0.62, pb, r, 1, 1, 1, 0, Math.PI / 2), '#5a4028'); }
-    for (const u of [-0.45, 0.45]) { const [pa, pb] = P(u, -2.4); B.box('wood', 0.1, 0.1, 2.4, T(pa, y + 0.45, pb, r, 1, 1, 1, -0.3), '#6a4a30'); }
-    if (load === 'barrels') for (const [u, v] of [[-0.45, -0.6], [0.45, -0.6], [0, 0.6]]) { const [pa, pb] = P(u, v); t.barrel(B, pa, y + 1.12, pb); }
-    else if (load === 'sacks') for (let k = 0; k < 5; k++) { const [pa, pb] = P((rnd() - 0.5) * 1.2, (rnd() - 0.5) * 2); B.add('cloth', new THREE.SphereGeometry(0.42, 8, 6), T(pa, y + 1.4, pb, rnd() * 3, 1.1, 0.7, 1.4), pick2(['#c8b58a', '#b8a47a', '#d6c9a8'], rnd)); }
-    else for (let k = 0; k < 6; k++) { const [pa, pb] = P(-0.6 + (k % 3) * 0.6, k < 3 ? -0.5 : 0.5); B.cyl('wood', 0.16, 0.16, 2.6, 6, T(pa, y + 1.3 + (k < 3 ? 0 : 0.3), pb, r, 1, 1, 1, Math.PI / 2), '#8a5a3a'); } // logwood / timber
-    t.addCollider(a, b, 1.2, 2.4, r, 1.8);
-    this.claim(a, b, 1.3, 2.6, r);
+    B.box('wood', 1.45, 0.11, 2.3, T(a, y + 0.84, b, r, 1, 1, 1, 0.06), '#7a5a3a');
+    for (const u of [-1, 1]) { const [pa, pb] = P(u * 0.72, 0); B.box('wood', 0.07, 0.34, 2.3, T(pa, y + 1.04, pb, r, 1, 1, 1, 0.06), '#6a4a30'); }
+    for (const u of [-0.84, 0.84]) { const [pa, pb] = P(u, 0.25); B.cyl('wood', 0.5, 0.5, 0.11, 12, T(pa, y + 0.5, pb, r, 1, 1, 1, 0, Math.PI / 2), '#5a4028'); }
+    for (const u of [-0.36, 0.36]) { const [pa, pb] = P(u, -1.9); B.box('wood', 0.08, 0.08, 1.9, T(pa, y + 0.36, pb, r, 1, 1, 1, -0.3), '#6a4a30'); }
+    if (load === 'barrels') for (const [u, v] of [[-0.36, -0.5], [0.36, 0.5]]) { const [pa, pb] = P(u, v); t.barrel(B, pa, y + 0.9, pb); }
+    else if (load === 'sacks') for (let k = 0; k < 4; k++) { const [pa, pb] = P((k % 2 - 0.5) * 0.7, (k < 2 ? -0.5 : 0.5)); B.add('cloth', new THREE.SphereGeometry(0.33, 8, 6), T(pa, y + 1.08, pb, rnd() * 3, 1.1, 0.6, 1.4), pick2(['#c8b58a', '#b8a47a', '#d6c9a8'], rnd)); }
+    else for (let k = 0; k < 4; k++) { const [pa, pb] = P(-0.4 + (k % 3) * 0.4, 0); B.cyl('wood', 0.12, 0.12, 2.0, 6, T(pa, y + 1.02 + (k === 3 ? 0.22 : 0), pb, r, 1, 1, 1, Math.PI / 2), '#8a5a3a'); } // logwood / timber
+    t.addCollider(a, b, 0.9, 1.9, r, 1.4);
+    this.claim(a, b, 1.0, 2.1, r);
   }
 
   // a washing line of linen, or sails spread to dry
@@ -184,6 +201,68 @@ export class CityKit {
     this.claim(a, b, len / 2, 0.8, r);
   }
 
+  // A street surface draped over the ground from (a0, b0) to (a1, b1): `kind` 'paving' (cobbles with a
+  // central gutter, as in Havana) or 'road' (packed earth, worn in two wheel ruts, damp along the edges), then
+  // the street's litter: puddles, straw, dung and loose stones.
+  pave(a0, b0, a1, b1, width, kind = 'road', col = '#b09a7c', litter = 1) {
+    const t = this.t, B = this.B, rnd = this.rnd;
+    const len = Math.hypot(a1 - a0, b1 - b0);
+    if (len < 1) return;
+    const ua = (a1 - a0) / len, ub = (b1 - b0) / len, na = -ub, nb = ua; // along, across
+    const nu = Math.max(1, Math.ceil(len / 2)), nv = 8;
+    const base = new THREE.Color(col), tmp = new THREE.Color();
+    const pos = [], cols = [];
+    const vert = (i, j) => {
+      const u = (i / nu) * len, v = (j / nv - 0.5) * width;
+      const a = a0 + ua * u + na * v, b = b0 + ub * u + nb * v;
+      const w = t.toWorld(a, b);
+      const land = t.terrain.baseHeight(w.x, w.z) > 0.9;
+      const x = Math.abs(v) / (width / 2);
+      let k;
+      if (kind === 'paving') k = 1 - 0.28 * Math.exp(-((v / 0.35) ** 2)) - 0.12 * x * x; // gutter down the middle
+      else k = 1 - 0.14 * Math.exp(-(((Math.abs(v) - 0.8) / 0.25) ** 2)) - 0.18 * x ** 3; // ruts; damp, trodden edges
+      k *= 0.92 + 0.16 * Math.sin(a * 0.37 + b * 0.21) * Math.sin(a * 0.13 - b * 0.29);
+      tmp.copy(base).multiplyScalar(k);
+      return { p: [a, t.groundAt(a, b) + (kind === 'paving' ? 0.05 : 0.035) - (kind === 'paving' ? 0.04 * Math.exp(-((v / 0.35) ** 2)) : 0), b], c: [tmp.r, tmp.g, tmp.b], land };
+    };
+    const grid = [];
+    for (let i = 0; i <= nu; i++) { const row = []; for (let j = 0; j <= nv; j++) row.push(vert(i, j)); grid.push(row); }
+    for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+      const q = [grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]];
+      if (!q.every((v) => v.land)) continue;
+      for (const k of [0, 2, 1, 0, 3, 2]) { pos.push(...q[k].p); cols.push(...q[k].c); }
+    }
+    if (!pos.length) return;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    const out = B.add(kind, g, null, '#ffffff');
+    out.attributes.color.array.set(cols);
+    // litter
+    const n = Math.round(len / 9 * litter);
+    for (let k = 0; k < n; k++) {
+      const u = rnd() * len, v = (rnd() - 0.5) * width * 0.85;
+      const a = a0 + ua * u + na * v, b = b0 + ub * u + nb * v;
+      const w = t.toWorld(a, b);
+      if (t.terrain.baseHeight(w.x, w.z) < 1 || t.overlapsRect(a, b, 0.5, 0.5, 0)) continue;
+      const y = t.groundAt(a, b) + 0.05;
+      const r = rnd();
+      if (r < 0.2 && kind === 'road') {
+        // a puddle in a hollow: still water reflecting the sky
+        B.add('window', new THREE.CircleGeometry(0.5 + rnd() * 0.9, 9), T(a, y + 0.01, b, rnd() * 3, 1, 0.45 + rnd() * 0.4, 1, -Math.PI / 2), '#5a5e58');
+      } else if (r < 0.45) {
+        for (let q = 0; q < 5; q++) B.box('cloth', 0.35 + rnd() * 0.4, 0.015, 0.03, T(a + (rnd() - 0.5) * 0.8, y + 0.01, b + (rnd() - 0.5) * 0.8, rnd() * 3), pick2(['#c8b060', '#b89a50', '#d6c27a'], rnd)); // spilt straw and fodder
+      } else if (r < 0.65) {
+        for (let q = 0; q < 3; q++) B.add('plain', new THREE.SphereGeometry(0.09, 5, 3), T(a + (rnd() - 0.5) * 0.4, y, b + (rnd() - 0.5) * 0.4, 0, 1.3, 0.45, 1), '#4a3a26'); // dung
+      } else if (r < 0.85) {
+        for (let q = 0; q < 4; q++) B.add('stone', new THREE.DodecahedronGeometry(0.08 + rnd() * 0.1, 0), T(a + (rnd() - 0.5) * 1.2, y, b + (rnd() - 0.5) * 1.2, rnd() * 3, 1, 0.6, 1), '#9a8f7c'); // loose stones
+      } else {
+        // a broken crate board or a gnawed cob
+        B.box('wood', 0.7 + rnd() * 0.4, 0.03, 0.14, T(a, y + 0.01, b, rnd() * 3), '#7a6448');
+      }
+    }
+  }
+
   node(a, b) {
     const t = this.t;
     const w = t.toWorld(a, b);
@@ -193,19 +272,17 @@ export class CityKit {
 
   // a street (list of anchor points) with pedestrians along it; `pave`: bucket and colour, or null
   street(pts, width, pave) {
-    const t = this.t;
     const L = pts.map(([x, z]) => this.L(x, z));
     for (let k = 0; k + 1 < L.length; k++) {
       const p = L[k], q = L[k + 1];
-      const len = Math.hypot(q.a - p.a, q.b - p.b), ang = Math.atan2(q.a - p.a, q.b - p.b);
+      const len = Math.hypot(q.a - p.a, q.b - p.b);
       for (let s = 0; s < len; s += 6) {
         const f = (s + 3) / len, a = p.a + (q.a - p.a) * Math.min(f, 1), b = p.b + (q.b - p.b) * Math.min(f, 1);
         if (s % 12 === 0) this.node(a, b);
-        if (!pave) continue;
-        const w = t.toWorld(a, b);
-        if (t.terrain.baseHeight(w.x, w.z) < 0.9) continue;
-        this.B.box(pave[0], width, 0.14, Math.min(6.3, len - s + 0.3), T(a, t.groundAt(a, b) + 0.03, b, ang), pave[1]);
       }
+      // overlap the joints a little so the segments meet without a gap
+      const ex = 0.5 / Math.max(len, 1);
+      if (pave) this.pave(p.a - (q.a - p.a) * ex, p.b - (q.b - p.b) * ex, q.a + (q.a - p.a) * ex, q.b + (q.b - p.b) * ex, width, pave[0], pave[1], pave[2] ?? 1);
     }
   }
 
@@ -522,7 +599,7 @@ const R = (rnd, lo, hi) => lo + rnd() * (hi - lo);
 function nassau(K) {
   const t = K.t, rnd = K.rnd;
   // Bay Street along the shore
-  K.street([[-190, 2], [-60, 0], [0, 2], [120, 6], [240, 10]], 9, null);
+  K.street([[-190, 2], [-60, 0], [0, 2], [120, 6], [240, 10]], 9, ['road', '#cdbb98', 1.4]); // sand and crushed shell
   // the ruined fort at the west end, its seaward bastions over the water's edge
   K.fort(-118, 6, 0, 17, { ruined: true, wallH: 4.5, col: '#b8b09c' });
   t.pier(0, { len: 34 });
@@ -555,8 +632,8 @@ function nassau(K) {
   for (const [x, z, br] of [[-90, 70, 80], [70, 60, 100], [160, 45, 90], [-20, 85, 70], [200, 75, 95]]) K.laundry(x, z, br, 6 + rnd() * 3);
   K.cart(20, 14, 90, 'barrels');
   // lanes up toward the ridge
-  K.street([[0, 2], [0, 90]], 5, null);
-  K.street([[120, 6], [115, 90]], 5, null);
+  K.street([[0, 2], [0, 90]], 5, ['road', '#c8b694', 1]);
+  K.street([[120, 6], [115, 90]], 5, ['road', '#c8b694', 1]);
 }
 
 // ---------------------------------------------------------------- La Habana, c.1716
@@ -606,7 +683,7 @@ function havana(K) {
   const houseFor = (B, t2, r, a, b, rot, w, d, o) => spanishHouse(B, t2, r, a, b, rot, w, d, o);
   K.grid({
     x: -150, z: 120, bearing: 350, bu: 34, bv: 30, su: 6.5, sv: 6, i: [-5, 6], j: [-3, 5], depth: [9, 13], front: [6.5, 11],
-    house: houseFor, opts: () => ({ storeys: rnd() < 0.38 ? 2 : 1 }), bollards: true,
+    house: houseFor, opts: () => ({ storeys: rnd() < 0.38 ? 2 : 1 }), bollards: true, pave: ['paving', '#b4a68e', 0.8],
   });
   // waterfront: quays along the channel and bay, jetties, cargo
   K.quay([[-14, 10], [-4, 60], [6, 110], [-20, 150], [-45, 165], [-75, 190], [-95, 215], [-112, 245], [-135, 290], [-155, 335]]);
@@ -643,7 +720,7 @@ function portRoyal(K) {
   // Thames, Queen and High Streets with their terraces
   K.grid({
     x: -560, z: 150, bearing: 90, bu: 30, bv: 26, su: 9, sv: 8, i: [-3, 4], j: [-1, 1], depth: [9, 12], front: [5.5, 8],
-    house: (B, t2, r, a, b, rot, w, d, o) => englishHouse(B, t2, r, a, b, rot, w, d, o), gap: 0.12,
+    house: (B, t2, r, a, b, rot, w, d, o) => englishHouse(B, t2, r, a, b, rot, w, d, o), gap: 0.12, pave: ['road', '#c2ae8c', 1.2],
   });
   // the sea-front battery and a palisade across the spit
   K.battery(-610, 222, 180, 40, 6, { bucket: 'brick', col: '#a5563a' });
@@ -666,8 +743,8 @@ function portRoyal(K) {
 // la Roche on its crag. Buccaneers smoke meat on boucans at the west end.
 function cayona(K) {
   const t = K.t, rnd = K.rnd;
-  K.street([[-215, 56], [-100, 54], [0, 52], [100, 50], [215, 52]], 7, null);
-  for (const x of [-70, 50, 130]) K.street([[x, 52], [x + 6, 5]], 4, null);
+  K.street([[-215, 56], [-100, 54], [0, 52], [100, 50], [215, 52]], 7, ['road', '#b89c7c', 1.2]);
+  for (const x of [-70, 50, 130]) K.street([[x, 52], [x + 6, 5]], 4, ['road', '#b89c7c', 1]);
   K.battery(-212, 64, 180, 26, 4);
   K.battery(212, 60, 180, 26, 4);
   t.pier(0, { len: 32 });

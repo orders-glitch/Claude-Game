@@ -304,6 +304,20 @@ export function englishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
     // windows to the back too
     if (s > 0) for (let i = 0; i < n; i++) window_(B, m, -w / 2 + (i + 0.5) * (w / n), base + s * sh + 1.6, d / 2, 1, { w: 0.9, h: 1.5, frame: trim, lit: rnd() < 0.3 });
   }
+  // side walls: windows on every floor (half of them blind where a neighbour abuts), a side door, and a
+  // little window lighting the garret in the gable
+  const side = framer(a, b, rot + Math.PI / 2); // its z axis is this house's x: side walls at z = ±w/2
+  const ns = Math.max(1, Math.floor(d / 3.4));
+  for (const sz of [-1, 1]) {
+    const open = rnd() < 0.8;
+    for (let s = 0; s < storeys; s++) for (let i = 0; i < ns; i++) {
+      const x = -d / 2 + (i + 0.5) * (d / ns);
+      if (s === 0 && i === ns - 1 && rnd() < 0.45) { door_(B, side, x, base, sz * w / 2, sz, { w: 1.0, h: 2.2, col: pick(['#3a2a1c', '#4a3a28', shut], rnd) }); continue; }
+      if (!open && rnd() < 0.6) { B.box(bucket, 1.1, 1.6, 0.08, side(x, base + s * sh + 1.6, sz * (w / 2 + 0.02)), frame ? col : '#8a4632'); continue; } // bricked-up
+      window_(B, side, x, base + s * sh + 1.6, sz * w / 2, sz, { w: 0.8, h: s === 0 ? 1.2 : 1.4, frame: trim, shutter: rnd() < 0.5 ? shut : null, louvre: true, lit: rnd() < 0.25 });
+    }
+    if (!gableFront && d > 5) window_(B, side, 0, top + rise * 0.35, sz * w / 2, sz, { w: 0.6, h: 0.8, frame: trim });
+  }
   if (!frame && storeys > 1) B.box(bucket === 'brick' ? 'brick' : 'wall', w + 0.08, 0.16, d + 0.08, m(0, base + sh, 0), rendered ? '#f6f1e6' : '#9a5038');
   // piazza: posts and a shingled lean-to over the brick pavement
   if (o.piazza ?? rnd() < 0.6) {
@@ -434,6 +448,23 @@ export function warehouse(B, t, rnd, a, b, rot, w, d, o = {}) {
     B.box('wood', 2.6, 3.4, 0.16, m(x, base + 1.7, -d / 2 - 0.04), '#4a3526');
     B.box(bucket, 3.2, 0.5, 0.3, m(x, base + 3.65, -d / 2 - 0.1), o.trim || col);
   }
+  // loft doors over the great doors, where goods are hoisted in
+  for (let i = 0; i < n; i++) {
+    const x = -w / 2 + (i + 0.5) * (w / n);
+    if (H > 5) B.box('wood', 1.4, 1.5, 0.14, m(x, base + H - 1.1, -d / 2 - 0.04), '#5a4030');
+  }
+  // side and back walls: small barred openings for air, a wicket door at the back
+  const side = framer(a, b, rot + Math.PI / 2);
+  for (const sz of [-1, 1]) for (let x = -d / 2 + 2.2; x < d / 2 - 1.5; x += 3.6) {
+    B.box('plain', 0.8, 0.9, 0.08, side(x, base + H * 0.62, sz * (w / 2 + 0.02)), '#1a1410');
+    for (let k = 0; k < 4; k++) B.box('metal', 0.04, 0.9, 0.04, side(x - 0.3 + k * 0.2, base + H * 0.62, sz * (w / 2 + 0.07)), '#2a2622');
+    B.box(bucket, 1.0, 0.14, 0.2, side(x, base + H * 0.62 - 0.52, sz * (w / 2 + 0.06)), o.trim || col);
+  }
+  for (let x = -w / 2 + 2.5; x < w / 2 - 1.5; x += 4.2) {
+    B.box('plain', 0.8, 0.9, 0.08, m(x, base + H * 0.62, d / 2 + 0.02), '#1a1410');
+    for (let k = 0; k < 4; k++) B.box('metal', 0.04, 0.9, 0.04, m(x - 0.3 + k * 0.2, base + H * 0.62, d / 2 + 0.07), '#2a2622');
+  }
+  B.box('wood', 1.2, 2.3, 0.14, m(w / 4, base + 1.15, d / 2 + 0.04), '#4a3526');
   // hoist beam under the eaves
   B.box('wood', 0.25, 0.25, 1.6, m(0, base + H - 0.4, -d / 2 - 0.7), '#3b2a1e');
   t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2, rot, H + 2);
@@ -454,8 +485,15 @@ export function church(B, t, rnd, a, b, rot, o = {}) {
   door_(B, m, 0, base, -len / 2, -1, { w: 2.6, h: 4.6, col: '#3b2a1e', surround: '#cdbb98' });
   B.cyl('window', 0.9, 0.9, 0.12, 16, m(0, base + h - 1.6, -len / 2 - 0.04, 0, 1, 1, 1, Math.PI / 2), '#1d1812');
   for (const k of [-1, 1]) B.box(bucket, 0.8, h, 0.5, m(k * (wid / 2 - 0.4), base + h / 2, -len / 2 - 0.2), wall === '#f0e8d6' ? '#e6dcc4' : wall);
-  // side windows high up
-  for (let z = -len / 2 + 4; z < len / 2 - 2; z += 5) for (const s of [-1, 1]) B.box('window', 0.12, 2.2, 1.2, m(s * (wid / 2 + 0.02), base + h - 2.6, z), '#1d1812');
+  // side walls: tall windows high up between buttresses, a side portal, and a cornice
+  for (let z = -len / 2 + 4; z < len / 2 - 2; z += 5) for (const s of [-1, 1]) {
+    B.box('window', 0.12, 2.2, 1.2, m(s * (wid / 2 + 0.02), base + h - 2.6, z), '#1d1812');
+    B.box(bucket, 0.24, 0.3, 1.6, m(s * (wid / 2 + 0.1), base + h - 3.85, z), '#e2d6bc'); // sill
+    B.box(bucket, 0.7, h * 0.8, 0.9, m(s * (wid / 2 + 0.3), base + h * 0.4 - 0.2, z + 2.5), wall); // buttress
+  }
+  for (const s of [-1, 1]) B.box(bucket, 0.3, 0.35, len, m(s * (wid / 2 + 0.12), base + h - 0.2, 0), '#e2d6bc');
+  const ds = rnd() < 0.5 ? -1 : 1;
+  door_(B, framer(a, b, rot + Math.PI / 2), 0, base, ds * wid / 2, ds, { w: 1.8, h: 3.2, col: '#3b2a1e', surround: '#cdbb98' });
   if (cote) {
     // a simple bell-cote over the facade
     B.box(bucket, 2.4, 3, 0.8, m(0, base + h + rise + 1.2, -len / 2 + 0.3), wall);

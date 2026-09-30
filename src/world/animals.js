@@ -51,14 +51,16 @@ function cartMesh(i) {
   for (const s of [-0.45, 0.45]) { const sh = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 2.6), M('#6a4a30')); sh.position.set(s, 0.95, 2.4); sh.rotation.x = 0.12; g.add(sh); }
   const loads = [['#8a6a48', 'barrel'], ['#c8b58a', 'sack'], ['#8a5a3a', 'log']];
   const [col, kind] = loads[i % loads.length];
-  for (let k = 0; k < 5; k++) {
+  // a modest load, below the sides' top rail more or less
+  for (let k = 0; k < 4; k++) {
     let m;
-    if (kind === 'barrel') m = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.7, 10), M(col));
-    else if (kind === 'sack') { m = new THREE.Mesh(new THREE.SphereGeometry(0.36, 8, 6), M(col)); m.scale.set(1.1, 0.7, 1.4); }
-    else { m = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 2.4, 6), M(col)); m.rotation.x = Math.PI / 2; }
-    m.position.set(-0.45 + (k % 3) * 0.45, 1.45 + (k > 2 ? 0.35 : 0), kind === 'log' ? 0.1 : -0.6 + (k % 2) * 1.1);
+    if (kind === 'barrel') m = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.6, 10), M(col));
+    else if (kind === 'sack') { m = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), M(col)); m.scale.set(1.1, 0.6, 1.4); }
+    else { m = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 2.2, 6), M(col)); m.rotation.x = Math.PI / 2; }
+    m.position.set(kind === 'log' ? -0.35 + (k % 3) * 0.35 : (k % 2 ? 0.4 : -0.4), 1.36 + (kind === 'log' && k === 3 ? 0.24 : 0), kind === 'log' ? 0.1 : (k < 2 ? -0.5 : 0.7));
     g.add(m);
   }
+  g.scale.setScalar(0.8); // a light two-wheeled carreta, about 1.5 m across
   g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   return g;
 }
@@ -244,7 +246,10 @@ class Animals {
         // a mule plodding its cart along the streets
         const C = a.cartOf, A = C.G.nodes[C.from], B = C.G.nodes[C.to];
         const L = Math.hypot(B.x - A.x, B.z - A.z) || 1;
-        C.t += (0.95 * dt) / L;
+        // the carter pulls up rather than drive into someone standing in the way
+        const ahx = a.pos.x + Math.sin(a.yaw) * 1.6, ahz = a.pos.z + Math.cos(a.yaw) * 1.6;
+        const blocked = (ahx - camPos.x) ** 2 + (ahz - camPos.z) ** 2 < 2.2 * 2.2;
+        if (!blocked) C.t += (0.95 * dt) / L;
         if (C.t >= 1) {
           const nb = C.G.adj[C.to].filter((k) => k !== C.from);
           C.from = C.to; C.to = nb.length ? nb[Math.floor(Math.random() * nb.length)] : C.G.adj[C.to][0]; C.t = 0;
@@ -253,14 +258,14 @@ class Animals {
         const want = Math.atan2(B.x - A.x, B.z - A.z);
         let dy = want - a.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
         a.yaw += dy * Math.min(1, dt * 2.5);
-        a.pos.set(tx + Math.cos(a.yaw) * 1.2, 0, tz - Math.sin(a.yaw) * 1.2);
+        a.pos.set(tx + Math.cos(a.yaw) * 1.9, 0, tz - Math.sin(a.yaw) * 1.9); // kept to one side of the street
         a.pos.y = g.groundAt(a.pos.x, a.pos.z);
         a.root.position.copy(a.pos);
         a.root.rotation.set(0, a.yaw, 0);
-        const cx = a.pos.x - Math.sin(a.yaw) * 2.9, cz = a.pos.z - Math.cos(a.yaw) * 2.9;
+        const cx = a.pos.x - Math.sin(a.yaw) * 2.45, cz = a.pos.z - Math.cos(a.yaw) * 2.45;
         a.cart.position.set(cx, g.groundAt(cx, cz), cz);
         a.cart.rotation.set(0, a.yaw, 0);
-        a.cart.children[0].rotation.x += dt * 1.6; // wheels
+        if (!blocked) a.cart.children[0].rotation.x += dt * 1.9; // wheels
         a.cart.visible = a.root.visible;
         moving = true;
       } else if (a.perch) {

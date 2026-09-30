@@ -136,7 +136,22 @@ function hatMesh(kind, color, trim) {
     }
     g.position.y = 0;
   } else if (kind === 'bandana' || kind === 'headwrap') {
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.108, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), m);
+    // a wrapped cloth: the turns of the wrap stand out in bands that spiral round the head
+    const cg = new THREE.SphereGeometry(0.108, 32, 14, 0, Math.PI * 2, 0, Math.PI * 0.55);
+    if (kind === 'headwrap') {
+      const p = cg.attributes.position, v = new THREE.Vector3();
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i);
+        const a = Math.atan2(v.x, v.z), el = v.y / 0.108;
+        const band = Math.sin((el * 3.2 + a / Math.PI * 0.9) * Math.PI);
+        const k = 1 + 0.07 * Math.abs(band) + 0.12 * Math.max(0, el - 0.55); // ridged turns, piled up on top
+        // the front edge rides up over the forehead, clear of the eyes
+        const front = Math.max(0, -v.z / 0.108) ** 1.5;
+        p.setXYZ(i, v.x * k, Math.max(v.y * (1 + 0.18 * Math.max(0, el - 0.3)), front * 0.07), v.z * k);
+      }
+      cg.computeVertexNormals();
+    }
+    const cap = new THREE.Mesh(cg, m);
     cap.scale.set(1.02, 1.0, 1.08);
     g.add(cap);
     const knot = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.12, 5), m);
@@ -150,7 +165,18 @@ function hatMesh(kind, color, trim) {
     g.add(brim, crown);
     g.position.y = 0;
   } else if (kind === 'bonnet') {
-    const b = new THREE.Mesh(new THREE.SphereGeometry(0.118, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.62), m);
+    // a linen coif gathered round its rim
+    const bg = new THREE.SphereGeometry(0.118, 32, 12, 0, Math.PI * 2, 0, Math.PI * 0.62);
+    const p = bg.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);
+      const a = Math.atan2(v.x, v.z), el = v.y / 0.118;
+      const gather = 1 + 0.035 * Math.sin(a * 14) * (1 - el); // gathers toward the rim
+      const front = Math.max(0, -v.z / 0.118) ** 1.5; // worn back off the forehead
+      p.setXYZ(i, v.x * gather, Math.max(v.y, front * 0.075), v.z * gather);
+    }
+    bg.computeVertexNormals();
+    const b = new THREE.Mesh(bg, m);
     b.scale.set(1, 1.02, 1.12);
     g.add(b);
     g.position.set(0, 0, 0.01);

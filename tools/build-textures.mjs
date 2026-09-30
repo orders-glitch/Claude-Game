@@ -28,6 +28,8 @@ const TEXTURES = {
   brick_4: ['town', 1024], // Port Royal's red English brick
   grey_roof_01: ['town', 1024], // cedar shingles
   cobblestone_large_01: ['town', 1024], // plazas and paved streets
+  cobblestone_floor_08: ['town', 1024], // Havana's paved streets
+  rocky_trail_02: ['town', 1024], // packed-earth streets with stones and ruts
 };
 const only = process.argv.slice(2);
 
