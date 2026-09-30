@@ -270,6 +270,7 @@ export class NPC extends Walker {
   update(dt) {
     const g = this.game;
     if (this.dead) {
+      if (this.spot) this.leaveSpot();
       this.deadT += dt;
       this.physics(dt, 0, 0);
       this.animate(dt);
@@ -281,6 +282,7 @@ export class NPC extends Walker {
     const dP = toP ? Math.hypot(toP.x, toP.z) : Infinity;
     const hostile = this.hostile || g.isWalkerHostile(this);
     this.animState.aim = false;
+    if (this.spot && (this.fleeT > 0 || (hostile && this.kind !== 'civilian') || (this.kind === 'civilian' && g.combatNear && dP < 30))) this.leaveSpot();
 
     if ((this.kind === 'guard' || this.kind === 'soldier' || this.kind === 'pirate') && hostile && dP < 45) {
       // combat
@@ -311,13 +313,38 @@ export class NPC extends Walker {
     } else if (this.fleeT > 0 || (this.kind === 'civilian' && g.combatNear && dP < 30)) {
       this.fleeT = Math.max(0, this.fleeT - dt);
       if (toP && dP < 40) { speed = 5; wishX = -toP.x / dP * speed; wishZ = -toP.z / dP * speed; this.yaw = Math.atan2(-wishX, -wishZ); }
+    } else if (this.spot) {
+      // going to / doing an everyday activity
+      const sp = this.spot;
+      const d = sp.pos.clone().sub(this.pos);
+      const dl = Math.hypot(d.x, d.z);
+      if (!this.spotT && dl > 0.35) {
+        speed = Math.min(this.speedWalk, dl * 2);
+        wishX = d.x / dl * speed; wishZ = d.z / dl * speed;
+        this.yaw = dampAngle(this.yaw, Math.atan2(-d.x, -d.z), 5, dt);
+        this.stuckT = (this.stuckT || 0) + dt;
+        if (this.stuckT > 30) this.leaveSpot();
+      } else {
+        if (!this.spotT) { this.spotT = rand(25, 90); this.stuckT = 0; }
+        // settle exactly onto the spot and face the way it faces
+        this.pos.x += d.x * Math.min(1, dt * 4); this.pos.z += d.z * Math.min(1, dt * 4);
+        this.yaw = dampAngle(this.yaw, sp.yaw, 4, dt);
+        this.animState.activity = sp.type;
+        this.spotT -= dt;
+        if (this.spotT <= 0 || (toP && dP < 1.2)) this.leaveSpot();
+      }
     } else {
       // wander between street nodes / patrol
       if (!this.target || this.pos.distanceTo(this.target) < 1.5) {
         this.waitT -= dt;
         if (this.waitT <= 0) {
           this.waitT = rand(1, 6);
-          this.target = this.pickTarget();
+          // townsfolk often stop to sit, talk, dance or work somewhere
+          if (this.kind !== 'guard' && this.town?.spots?.length && Math.random() < 0.55) {
+            const free = this.town.spots.filter((s) => !s.taken && s.pos.distanceTo(this.pos) < 90);
+            if (free.length) { this.spot = pick(free); this.spot.taken = this; this.spotT = 0; this.target = null; }
+          }
+          if (!this.spot) this.target = this.pickTarget();
         }
       } else {
         const d = this.target.clone().sub(this.pos);
@@ -342,6 +369,16 @@ export class NPC extends Walker {
     }
     this.physics(dt, wishX, wishZ, 8);
     this.animate(dt);
+  }
+
+  dispose() { this.leaveSpot(); super.dispose(); }
+
+  leaveSpot() {
+    if (this.spot) this.spot.taken = null;
+    this.spot = null;
+    this.spotT = 0;
+    this.animState.activity = null;
+    this.waitT = rand(0.5, 2);
   }
 
   pickTarget() {

@@ -179,6 +179,8 @@ class Humans {
       idle: c('Idle_Loop'), walk: c('Walk_Loop'), run: c('Jog_Fwd_Loop'), slash: c('Sword_Attack'),
       aimPistol: c('Pistol_Aim_Neutral'), aimMusket: c('Pistol_Aim_Neutral'), hit: c('Hit_Chest'),
       death: c('Death01'), dig: c('Fixing_Kneeling'),
+      // everyday activities for townsfolk
+      sit: c('Sitting_Idle_Loop'), sitTalk: c('Sitting_Talking_Loop'), talk: c('Idle_Talking_Loop'), dance: c('Dance_Loop'), work: c('Fixing_Kneeling'),
     };
     // strip root motion so the game controls position
     for (const clip of Object.values(this.clips)) {

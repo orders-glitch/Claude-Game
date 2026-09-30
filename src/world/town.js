@@ -50,6 +50,7 @@ export class Town {
     this.lanterns = [];
     this.cannons = [];
     this.lots = [];
+    this.spots = []; // places townsfolk go to sit, talk, dance or work: { type, pos, yaw }
 
     // --- locate coastline & town frame
     const dir = port.dir;
@@ -71,6 +72,25 @@ export class Town {
   // place a scanned prop in town-local coordinates; returns false if the model isn't available
   prop(name, a, y, b, ry = 0, s = 1, rx = 0, rz = 0) {
     return props.place(name, this.frame.clone().multiply(PM(a, y, b, ry, s, rx, rz)), this.port.id);
+  }
+
+  // an activity spot in town-local coordinates; `face` is the local direction the person looks
+  spot(type, a, b, face, y) {
+    const p = this.toWorld(a, b, y ?? this.groundAt(a, b));
+    this.spots.push({ type, pos: p, yaw: this.dir + face + Math.PI, taken: null });
+  }
+
+  // plank bench with two seats; `face`: local yaw the sitters face
+  bench(B, a, b, face) {
+    const y = this.groundAt(a, b);
+    B.box('wood', 1.9, 0.08, 0.42, T(a, y + 0.45, b, face), '#7a5a3a');
+    const c = Math.cos(face), s = Math.sin(face);
+    for (const k of [-0.8, 0.8]) B.box('wood', 0.08, 0.45, 0.36, T(a + k * c, y + 0.22, b - k * s, face), '#5a4028');
+    for (const k of [-0.45, 0.45]) {
+      // seat centre, nudged forward so hips land on the plank
+      const sa = a + k * c + Math.sin(face) * 0.12, sb = b - k * s + Math.cos(face) * 0.12;
+      this.spots.push({ type: Math.random() < 0.5 ? 'sit' : 'sitTalk', pos: this.toWorld(sa, sb, y), yaw: this.dir + face + Math.PI, taken: null });
+    }
   }
 
   // a small still life of cargo: crates, maybe with a bucket, jug or basket on top
@@ -228,6 +248,17 @@ export class Town {
         if (rnd() < 0.5) B.box('wood', s * 0.8, s * 0.8, s * 0.8, T(a + 0.1, y + s * 1.4, b, rnd()), '#9c7f58');
         this.addCollider(a, b, s * 0.6, s * 0.6, 0, 2);
       }
+    }
+    // benches looking out to sea, and hands at work among the cargo
+    for (let i = 0; i < 6; i++) {
+      const a = (rnd() - 0.5) * R * 1.4, b = 17;
+      if (!this.isLandLot(a, b, 1.2, 0.6) || this.overlapsLots(a, b, 1.2, 0.6, 0.5)) continue;
+      this.bench(B, a, b, Math.PI);
+    }
+    for (let i = 0; i < 5; i++) {
+      const a = (rnd() - 0.5) * R * 1.2, b = 9 + rnd() * 6;
+      if (!this.isLandLot(a, b, 0.6, 0.6) || this.overlapsLots(a, b, 0.6, 0.6, 0.3)) continue;
+      this.spot('work', a, b, rnd() * Math.PI * 2);
     }
     // lantern posts
     for (let i = 0; i < 10; i++) {
@@ -408,6 +439,11 @@ export class Town {
     }
     const door = this.toWorld(a, doorB, y + 0.2);
     this.doors.push({ type, label: labels[type][this.port.style] || type, pos: door });
+    if (type === 'tavern') {
+      // a fiddle, a jig and a drink outside the tavern
+      for (let k = 0; k < 3; k++) this.spot('dance', a - 2.5 + k * 2.5, doorB - 4.5 - (k % 2) * 1.2, (k - 1) * 0.6);
+      this.bench(B, a + hw + 1.5, doorB - 2.5, Math.PI);
+    }
     if (type === 'tavern' || type === 'governor') this.guardPosts.push(this.toWorld(a + hw + 2, doorB - 2, y));
   }
 
@@ -506,6 +542,20 @@ export class Town {
   buildMarket(B, a, b) {
     const rnd = this.rand;
     const y = this.groundAt(a, b);
+    // benches around the plaza facing the fountain, and people meeting to talk
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2 + 0.3;
+      const ba = a + Math.cos(ang) * 17.5, bb = b + Math.sin(ang) * 14;
+      if (!this.isLandLot(ba, bb, 1, 1)) continue;
+      this.bench(B, ba, bb, Math.atan2(a - ba, b - bb) + Math.PI);
+    }
+    for (let i = 0; i < 4; i++) {
+      const ang = (i / 4) * Math.PI * 2 + 0.8, r = 6.5;
+      const ta = a + Math.cos(ang) * r, tb = b + Math.sin(ang) * r;
+      const f = rnd() * Math.PI * 2;
+      this.spot('talk', ta + Math.sin(f) * 0.6, tb + Math.cos(f) * 0.6, f + Math.PI);
+      this.spot('talk', ta - Math.sin(f) * 0.6, tb - Math.cos(f) * 0.6, f);
+    }
     // paved plaza with a fountain / well
     if (this.port.style !== 'shanty') B.cyl('stone', 19, 19, 0.12, 28, T(a, y + 0.03, b), '#b3a68e');
     B.cyl('stone', 2.4, 2.6, 0.9, 16, T(a, y + 0.45, b), '#bfb4a0');

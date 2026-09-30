@@ -17,6 +17,7 @@ import { SkySystem } from './world/sky.js';
 import { Weather } from './world/weather.js';
 import { Vegetation } from './world/vegetation.js';
 import { Grass } from './world/grass.js';
+import { Harbour } from './world/harbour.js';
 import { Wildlife } from './world/wildlife.js';
 import { Town, buildSalvageCamp } from './world/town.js';
 import { loadTownTextures } from './world/builder.js';
@@ -155,6 +156,8 @@ export class Game {
 
     await step(0.65, 'Filling the oceans…');
     this.ocean = new Ocean(scene, this.terrain, q);
+    this.harbour = new Harbour(scene, this.townList, this.terrain);
+    this.shipBlockers.push(...this.harbour.blockers);
     this.sky = new SkySystem(scene, renderer, q);
     this.weather = new Weather(scene);
     this.wind = this.weather.wind;
@@ -604,6 +607,7 @@ export class Game {
     this.effects.update(dt, this.sky, this.weather.fog);
     this.vegetation.update(dt, this.camera.position, this.wind.strength * (1 + this.sky.storm));
     props.update(this.camera.position);
+    this.harbour.update(dt, shipTime.value, this.ocean, this.camera.position, this.wind);
     flora.update(this.camera.position, this.sky);
     if (this.camera.position.y - this.terrain.height(this.camera.position.x, this.camera.position.z) < 60) this.grass.update(this.camera.position);
     this.terrainDetail.update(this.camera.position);
@@ -1446,7 +1450,7 @@ export class Game {
 
   spawnTownNPCs(town) {
     const nodes = town.streetNodes;
-    const n = this.quality === 'low' ? 8 : 16;
+    const n = this.quality === 'low' ? 8 : this.quality === 'medium' ? 16 : 24;
     const nation = town.port.nation;
     for (let i = 0; i < n && nodes.length; i++) {
       const p = pick(nodes);

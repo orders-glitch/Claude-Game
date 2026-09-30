@@ -15,6 +15,7 @@ import { props } from '../world/props.js';
 import { weapons } from './weapons.js';
 
 const BASE = './models/characters/';
+const ACTIVITIES = ['sit', 'sitTalk', 'talk', 'dance', 'work'];
 const _v0 = new THREE.Vector3(), _v1 = new THREE.Vector3();
 const _q0 = new THREE.Quaternion(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _q4 = new THREE.Quaternion();
 
@@ -212,8 +213,9 @@ export class GltfRig {
     add('dig', C.dig);
     add('hit', splitClipC(C.hit, up, true), true);
     add('death', C.death, true);
+    for (const k of ACTIVITIES) if (C[k]) add('act_' + k, C[k]);
     if (this.actions.idle) { this.actions.idle.setEffectiveWeight(1); this.actions.idle.time = Math.random() * this.actions.idle.getClip().duration; }
-    this.w = { slash: 0, aimP: 0, aimM: 0, dig: 0, dead: 0 };
+    this.w = { slash: 0, aimP: 0, aimM: 0, dig: 0, dead: 0, act: 0 };
     this.wasDead = false;
     this.lastHit = 0;
     this.weaponKind = undefined;
@@ -270,6 +272,11 @@ export class GltfRig {
     const wP = towards('aimP', aimP ? 1 : 0, 12);
     const wM = towards('aimM', aimM ? 1 : 0, 10);
     const wD = towards('dig', st.dig && A.dig ? 1 : 0, 8);
+    // everyday activity (sitting, talking, dancing, working): a full-body layer over the locomotion
+    const act = st.activity && A['act_' + st.activity] ? st.activity : null;
+    if (act && act !== this.curAct) { if (this.curAct) setW('act_' + this.curAct, 0); this.curAct = act; this.w.act = 0; }
+    const wA = towards('act', act ? 1 : 0, 3.5);
+    if (this.curAct) setW('act_' + this.curAct, wA * (1 - wS));
     const upper = Math.min(1, wS + wP + wM);
     if (slashing) A.slash.time = Math.min(0.999, st.attack) * A.slash.getClip().duration;
     setW('slash', wS);
@@ -282,7 +289,7 @@ export class GltfRig {
     const walkW = Math.max(0, Math.min(1, s / 1.4)) * (1 - Math.max(0, Math.min(1, (s - 2.6) / 2)));
     const runW = Math.max(0, Math.min(1, (s - 2.6) / 2));
     const idleW = Math.max(0, 1 - walkW - runW);
-    const loco = 1 - wD;
+    const loco = (1 - wD) * (1 - (this.w.act || 0));
     if (A.walk) { A.walk.timeScale = s > 0.2 ? Math.max(0.5, s / 1.6) : 1; if (A.walk_lower) { A.walk_lower.timeScale = A.walk.timeScale; A.walk_lower.time = A.walk.time; } }
     if (A.run) { A.run.timeScale = Math.max(0.7, s / 5.5); if (A.run_lower) { A.run_lower.timeScale = A.run.timeScale; A.run_lower.time = A.run.time; } }
     if (A.idle_lower && A.idle) A.idle_lower.time = A.idle.time;
