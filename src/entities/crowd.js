@@ -19,50 +19,65 @@ const LOOKS = [
   { id: 'm_coat', sex: 'male', outfit: 'outfit_male_ranger', hair: 'hair_simpleparted', beard: false, hat: 'tricorne' },
   { id: 'f_lady', sex: 'female', outfit: 'outfit_female_ranger', hair: 'hair_long', hat: null },
   { id: 'm_coat_bare', sex: 'male', outfit: 'outfit_male_ranger', hair: 'hair_long', beard: true, hat: null },
+  { id: 'f_basket', sex: 'female', outfit: 'outfit_female_peasant', hair: 'hair_buns', hat: 'basket' }, // market women
+  { id: 'm_porter', sex: 'male', outfit: 'outfit_male_peasant', hair: 'hair_buzzed', beard: false, hat: 'bundle' }, // porters
 ];
 
 // who is on the streets of each port: [look, weight, palette]
 const SKIN = { light: ['#f0cdb4', '#e2b594', '#d8a888'], mid: ['#c99670', '#b98460', '#a8744e'], dark: ['#7c5034', '#5a3624', '#6a4430', '#8a5a3c'] };
 const HAIRC = ['#2a1a10', '#4a2e1a', '#1a1410', '#6a4a2a', '#8a6a4a', '#b89a70', '#1a1410'];
-const LINEN = ['#efe6d6', '#e2d6c0', '#d6c8ae', '#c9b79a', '#b8ab94', '#f2ece0'];
+const LINEN = ['#efe6d6', '#e2d6c0', '#d6c8ae', '#c9b79a', '#b8ab94', '#dcd4c2'];
 const EARTH = ['#6a5a44', '#4a3a2a', '#5a4a5a', '#3a4a3a', '#7a6a4a', '#5a4632', '#8a7a5a', '#4a4a52'];
 const POP = {
   havana: [
+    ['f_basket', 2.2, { coat: ['#8a4a5a', '#5a6a8a', '#a86a4a', '#e6dcc8', '#b8442a', '#6a8a9a'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#e6dcc8', '#b8442a'] }], // vendors with head baskets
+    ['m_porter', 1.4, { coat: EARTH, skin: [...SKIN.dark, ...SKIN.mid], hat: ['#8a7a58', '#7a6a4a', '#9a8a68', '#6a5a40'] }], // porters from the quays
     ['m_straw', 3, { coat: EARTH, skin: [...SKIN.mid, ...SKIN.dark], hat: ['#c8b078', '#b8a068'] }],
     ['m_bare', 2, { coat: EARTH, skin: [...SKIN.dark, ...SKIN.mid] }], // porters, stevedores, water carriers
-    ['f_wrap', 3, { coat: ['#8a4a5a', '#5a6a8a', '#a86a4a', '#e6dcc8', '#b8442a', '#6a8a9a'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#eee6d6', '#b8442a', '#e0c060', '#6a8a9a', '#f2ece0'] }],
-    ['f_bonnet', 1.5, { coat: ['#2a2a3a', '#5a3a4a', '#3a4a6a', '#6a5a4a'], skin: [...SKIN.light, ...SKIN.mid], hat: ['#1a1a1a', '#eee6d6'] }],
+    ['f_wrap', 3, { coat: ['#8a4a5a', '#5a6a8a', '#a86a4a', '#e6dcc8', '#b8442a', '#6a8a9a'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#d9d0bd', '#b8442a', '#e0c060', '#6a8a9a', '#dcd4c2'] }],
+    ['f_bonnet', 1.5, { coat: ['#2a2a3a', '#5a3a4a', '#3a4a6a', '#6a5a4a'], skin: [...SKIN.light, ...SKIN.mid], hat: ['#1a1a1a', '#d9d0bd'] }],
     ['m_coat', 2, { coat: ['#2a3a5a', '#3a2a2a', '#1a1a1a', '#4a3a2a', '#27408a', '#5a2a1a'], skin: [...SKIN.light, ...SKIN.mid], hat: ['#15110e'] }], // merchants, officers, soldiers
     ['f_lady', 0.6, { coat: ['#5a2a3a', '#2a3a5a', '#1a1a1a'], skin: SKIN.light }],
     ['m_coat_bare', 1, { coat: ['#6a6a6a', '#5a4632', '#e6e2d6'], skin: SKIN.mid }], // friars in grey, clerks
   ],
   portroyal: [
+    ['f_basket', 1.5, { coat: ['#a86a4a', '#5a6a8a', '#e6dcc8', '#8a4a5a'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#e6dcc8'] }],
+    ['m_porter', 1.2, { coat: EARTH, skin: [...SKIN.dark, ...SKIN.mid, ...SKIN.light], hat: ['#8a7a58', '#7a6a4a', '#9a8a68', '#6a5a40'] }],
     ['m_bandana', 3, { coat: ['#2a3450', '#3a3a3a', '#6a4a2a', '#e6e2d6', '#5a1e2a'], skin: [...SKIN.light, ...SKIN.mid, ...SKIN.dark], hat: ['#8a2a1a', '#2a3a5a', '#1a1a1a', '#e6dcc8'] }], // seamen
     ['m_straw', 2, { coat: EARTH, skin: [...SKIN.dark, ...SKIN.mid], hat: ['#c8b078'] }],
     ['m_coat', 2.5, { coat: ['#c8281f', '#c8281f', '#1f2f5a', '#2a2a2a', '#4a3a2a'], skin: SKIN.light, hat: ['#15110e'] }], // redcoats, naval officers, merchants
-    ['f_wrap', 2, { coat: ['#a86a4a', '#5a6a8a', '#e6dcc8', '#8a4a5a'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#eee6d6', '#b8442a', '#e0c060'] }],
-    ['f_bonnet', 1.5, { coat: ['#3a4a6a', '#5a3a4a', '#6a5a4a', '#2a2a3a'], skin: SKIN.light, hat: ['#eee6d6', '#f2ece0'] }],
+    ['f_wrap', 2, { coat: ['#a86a4a', '#5a6a8a', '#e6dcc8', '#8a4a5a'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#d9d0bd', '#b8442a', '#e0c060'] }],
+    ['f_bonnet', 1.5, { coat: ['#3a4a6a', '#5a3a4a', '#6a5a4a', '#2a2a3a'], skin: SKIN.light, hat: ['#d9d0bd', '#dcd4c2'] }],
     ['m_bare', 1.5, { coat: EARTH, skin: [...SKIN.dark, ...SKIN.mid] }],
     ['f_lady', 0.5, { coat: ['#5a2a3a', '#2a3a5a'], skin: SKIN.light }],
   ],
   nassau: [
+    ['m_porter', 0.6, { coat: ['#5a2a1a', '#2a3450', '#6a4a2a'], skin: [...SKIN.light, ...SKIN.mid, ...SKIN.dark], hat: ['#8a7a58', '#7a6a4a', '#9a8a68', '#6a5a40'] }], // plunder carried up the beach
     ['m_bandana', 4, { coat: ['#5a2a1a', '#2a3450', '#3a3a3a', '#6a4a2a', '#5a1e2a', '#2e4a3a', '#8a2a1a'], skin: [...SKIN.light, ...SKIN.mid, ...SKIN.dark], hat: ['#8a2a1a', '#2a3a5a', '#1a1a1a', '#6a5a2a', '#7a1d1d'] }],
     ['m_bare', 3, { coat: ['#5a2a1a', '#2a3450', '#3a3a3a', '#6a4a2a', '#7a6a4a'], skin: [...SKIN.light, ...SKIN.mid, ...SKIN.dark] }],
     ['m_straw', 2, { coat: EARTH, skin: [...SKIN.mid, ...SKIN.dark], hat: ['#c8b078'] }],
     ['m_coat_bare', 1.5, { coat: ['#5a1e2a', '#2a3a5a', '#7a1c1c', '#1a1a1a'], skin: [...SKIN.light, ...SKIN.mid] }], // captains in prize coats
     ['m_coat', 1, { coat: ['#7a1c1c', '#1a1a1a', '#2a3a5a'], skin: SKIN.light, hat: ['#15110e'] }],
-    ['f_wrap', 0.8, { coat: ['#8a4a5a', '#a86a4a', '#e6dcc8'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#b8442a', '#eee6d6'] }],
+    ['f_wrap', 0.8, { coat: ['#8a4a5a', '#a86a4a', '#e6dcc8'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#b8442a', '#d9d0bd'] }],
   ],
   tortuga: [
+    ['f_basket', 1, { coat: ['#5a6a8a', '#e6dcc8', '#7a2e24'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#e6dcc8'] }],
+    ['m_porter', 1, { coat: ['#7a2e24', '#5a4632', '#4a3a2a'], skin: [...SKIN.light, ...SKIN.mid, ...SKIN.dark], hat: ['#8a7a58', '#7a6a4a', '#9a8a68', '#6a5a40'] }],
     ['m_straw', 3, { coat: ['#e6e2d6', '#c9b79a', '#8a7a5a', '#5e7482'], skin: [...SKIN.light, ...SKIN.mid], hat: ['#c8b078'] }], // habitants, engagés
     ['m_bare', 2, { coat: ['#7a2e24', '#5a4632', '#4a3a2a', '#8a6a4a'], skin: [...SKIN.light, ...SKIN.mid, ...SKIN.dark] }], // boucaniers in stained smocks
     ['m_bandana', 1.5, { coat: ['#2a3450', '#3a3a3a', '#6a4a2a'], skin: [...SKIN.light, ...SKIN.mid], hat: ['#8a2a1a', '#1a1a1a'] }],
-    ['f_wrap', 1.5, { coat: ['#5a6a8a', '#e6dcc8', '#7a2e24'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#eee6d6', '#b8442a'] }],
-    ['f_bonnet', 1, { coat: ['#3a4a6a', '#6a5a4a'], skin: SKIN.light, hat: ['#eee6d6'] }],
+    ['f_wrap', 1.5, { coat: ['#5a6a8a', '#e6dcc8', '#7a2e24'], skin: [...SKIN.dark, ...SKIN.mid], hat: ['#d9d0bd', '#b8442a'] }],
+    ['f_bonnet', 1, { coat: ['#3a4a6a', '#6a5a4a'], skin: SKIN.light, hat: ['#d9d0bd'] }],
     ['m_coat', 0.8, { coat: ['#e6e2d6', '#1f3d78', '#2a2a2a'], skin: SKIN.light, hat: ['#15110e'] }],
   ],
 };
-const COUNT = { havana: 450, portroyal: 350, nassau: 300, tortuga: 120 };
+// the garrisons: coats of the Spanish, English and French foot
+const SOLDIERS = {
+  havana: { patrols: 9, coat: ['#e6e2d6', '#e6e2d6', '#27408a'], skin: [...SKIN.light, ...SKIN.mid] },
+  portroyal: { patrols: 8, coat: ['#c8281f'], skin: SKIN.light },
+  tortuga: { patrols: 3, coat: ['#e6e2d6', '#2a3a6a'], skin: [...SKIN.light, ...SKIN.mid] },
+};
+const COUNT = { havana: 540, portroyal: 400, nassau: 300, tortuga: 150 };
 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -155,7 +170,8 @@ async function bakeLook(look) {
     }
     if (uv && maps.includes(mat.map)) { buv[k * 2] = uv.getX(i); buv[k * 2 + 1] = uv.getY(i); bmap[k] = maps.indexOf(mat.map); }
     let f = 0;
-    if (!P.o.isSkinnedMesh) {
+    if (!P.o.isSkinnedMesh && mat.userData.keep) { f = 0; r = mat.color.r; g = mat.color.g; b = mat.color.b; } // wicker and fruit keep their own colours
+    else if (!P.o.isSkinnedMesh) {
       // hats carry no texture: shade their folds and brims from the shape so a cap doesn't read as a helmet
       f = 5;
       const nm = P.o.geometry.attributes.normal;
@@ -390,6 +406,7 @@ export class Crowd {
     this.quality = quality;
     this.looks = {};
     this.meshes = {};
+    this.meshesLo = {};
     this.agents = [];
     this.town = null;
     this.ready = false;
@@ -409,10 +426,21 @@ export class Crowd {
       mesh.frustumCulled = false;
       mesh.count = 0;
       const ia = (n) => new THREE.InstancedBufferAttribute(new Float32Array(cap * n), n).setUsage(THREE.DynamicDrawUsage);
-      for (const [k, n] of [['iAnim', 4], ['iCoat', 3], ['iSkin', 3], ['iHair', 3], ['iLinen', 3], ['iHat', 3]]) v.geo.setAttribute(k, ia(n));
+      // far LOD: the same vertices (so the same animation texture), a much coarser index
+      const geoLo = new THREE.BufferGeometry();
+      for (const [k, at] of Object.entries(v.geo.attributes)) geoLo.setAttribute(k, at);
+      const idx = new Uint32Array(v.geo.index.array);
+      const [lo] = MeshoptSimplifier.simplify(idx, new Float32Array(v.geo.attributes.position.array), 3, Math.min(idx.length, 1300 * 3), 0.2, []);
+      geoLo.setIndex(new THREE.BufferAttribute(lo, 1));
+      geoLo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
+      for (const [k, n] of [['iAnim', 4], ['iCoat', 3], ['iSkin', 3], ['iHair', 3], ['iLinen', 3], ['iHat', 3]]) { v.geo.setAttribute(k, ia(n)); geoLo.setAttribute(k, ia(n)); }
+      const meshLo = new THREE.InstancedMesh(geoLo, mesh.material, cap);
+      meshLo.customDepthMaterial = mesh.customDepthMaterial;
+      Object.assign(meshLo, { castShadow: mesh.castShadow, receiveShadow: true, frustumCulled: false, count: 0, name: 'crowdLo_' + look.id });
       mesh.name = 'crowd_' + look.id;
-      this.scene.add(mesh);
+      this.scene.add(mesh, meshLo);
       this.meshes[look.id] = mesh;
+      this.meshesLo[look.id] = meshLo;
     }
     this.ready = true;
   }
@@ -441,7 +469,7 @@ export class Crowd {
     if (!this.ready || this.town === town) return;
     this.town = town;
     this.agents = [];
-    for (const m of Object.values(this.meshes)) m.count = 0;
+    for (const m of [...Object.values(this.meshes), ...Object.values(this.meshesLo)]) m.count = 0;
     if (!town) return;
     const G = this.graph(town);
     const live = G.nodes.map((_, i) => i).filter((i) => G.adj[i].length);
@@ -474,6 +502,35 @@ export class Crowd {
       this.place(a, G);
       this.agents.push(a);
     }
+    // patrols: soldiers of the garrison walking the streets in twos and threes, day and night
+    const troops = SOLDIERS[town.port.id];
+    if (troops && this.looks.m_coat) {
+      for (let k = 0; k < Math.round(troops.patrols * q + 0.4); k++) {
+        const i = focusNear.length && Math.random() < 0.6 ? pick(focusNear) : pick(live);
+        const size = Math.random() < 0.5 ? 2 : 3;
+        let lead = null;
+        for (let m = 0; m < size; m++) {
+          if ((counts.m_coat || 0) >= this.meshes.m_coat.instanceMatrix.count) break;
+          const slot = (counts.m_coat = (counts.m_coat || 0) + 1) - 1;
+          const a = {
+            look: 'm_coat', slot, pal: { coat: troops.coat }, coat: new THREE.Color(pick(troops.coat)), skin: new THREE.Color(pick(troops.skin)), hair: new THREE.Color(pick(HAIRC)),
+            linen: new THREE.Color('#efe8da'), hat: new THREE.Color('#15110e'), pos: new THREE.Vector3(), yaw: 0, speed: 1.15, phase: Math.random() * 0.2, anim: 'walk',
+            from: i, to: pick(G.adj[i]), t: Math.random(), side: rand(-1, 1), wait: 0, mode: 'walk', spot: null, modeT: rand(60, 200), patrol: true, night: true,
+          };
+          if (lead) { a.mode = 'follow'; a.lead = lead; a.off = size === 2 ? { x: 0.8, z: 0 } : { x: m === 1 ? 0.65 : -0.65, z: 1.4 }; } // two abreast, or a corporal leading a file of two
+          else lead = a;
+          this.place(a, G);
+          this.agents.push(a);
+        }
+      }
+    }
+    // friends and couples walking together
+    const walkers = this.agents.filter((a) => a.mode === 'walk' && !a.patrol);
+    for (let k = 0; k + 1 < walkers.length; k += 2) {
+      if (Math.random() > 0.14) continue;
+      const lead = walkers[k], b = walkers[k + 1];
+      b.mode = 'follow'; b.lead = lead; b.off = { x: 0.7, z: 0.15 }; b.speed = lead.speed; lead.company = true;
+    }
     // oarsmen and fishermen in the harbour boats
     for (const bt of (game?.harbour?.boats || []).filter((b) => b.town === town)) {
       for (const seat of bt.seats) {
@@ -488,16 +545,10 @@ export class Crowd {
         });
       }
     }
-    for (const a of this.agents) this.writeColors(a);
-    for (const [id, m] of Object.entries(this.meshes)) {
-      m.count = counts[id] || 0;
-      for (const k of ['iCoat', 'iSkin', 'iHair', 'iLinen', 'iHat']) m.geometry.attributes[k].needsUpdate = true;
-    }
   }
 
-  writeColors(a) {
-    const g = this.meshes[a.look].geometry.attributes;
-    const s = a.slot;
+  writeColors(a, M, s) {
+    const g = M.geometry.attributes;
     g.iCoat.setXYZ(s, a.coat.r, a.coat.g, a.coat.b);
     g.iSkin.setXYZ(s, a.skin.r, a.skin.g, a.skin.b);
     g.iHair.setXYZ(s, a.hair.r, a.hair.g, a.hair.b);
@@ -507,6 +558,11 @@ export class Crowd {
 
   // stop to talk with whoever is near, sit on a free bench, or lend a hand at the cargo
   startStanding(a, G, town) {
+    if (a.patrol || a.company) {
+      // a patrol halts a moment; friends stop to talk in the street
+      a.mode = 'stand'; a.anim = a.patrol ? 'idle' : 'talk'; a.modeT = a.patrol ? rand(4, 12) : rand(10, 40);
+      return;
+    }
     const free = town.spots.filter((s) => !s.taken && (s.type === 'sit' || s.type === 'sitTalk' || s.type === 'work' || s.type === 'talk'));
     const here = G.nodes[a.from];
     const near = free.filter((s) => Math.abs(s.pos.x - here.x) < 60 && Math.abs(s.pos.z - here.z) < 60);
@@ -538,24 +594,31 @@ export class Crowd {
     if (!this.ready || !this.town) return;
     const town = this.town;
     const far = town.center.distanceTo(camPos) > town.R * 3;
-    for (const m of Object.values(this.meshes)) m.visible = !far;
+    const all = [...Object.values(this.meshes), ...Object.values(this.meshesLo)];
+    for (const m of all) { m.visible = !far; m._n = 0; }
     if (far) return;
     const G = town.crowdGraph;
     const T = town.terrain;
     const night = hours < 5.5 || hours > 21.5;
-    const dim = { m4: new THREE.Matrix4(), q: new THREE.Quaternion(), up: new THREE.Vector3(0, 1, 0), s: new THREE.Vector3(1, 1, 1) };
+    const dim = { m4: new THREE.Matrix4(), q: new THREE.Quaternion(), up: new THREE.Vector3(0, 1, 0), s: new THREE.Vector3(1, 1, 1), p: new THREE.Vector3() };
     let i = 0;
     for (const a of this.agents) {
       i++;
-      const mesh = this.meshes[a.look];
-      const attr = mesh.geometry.attributes.iAnim;
       // at night most people are indoors
-      const hidden = night && (i % (town.port.style === 'shanty' ? 5 : 4) !== 0) && !(town.port.style === 'shanty' && i % 5 < 3); // the Brethren carouse till dawn
+      const hidden = night && !(a.night || a.lead?.night) && (i % (town.port.style === 'shanty' ? 5 : 4) !== 0) && !(town.port.style === 'shanty' && i % 5 < 3); // the Brethren carouse till dawn
       if (a.mode === 'ride') {
         const g = a.ride.bt.group;
         const p = a.ride.seat.clone().applyMatrix4(g.matrixWorld);
         a.pos.copy(p); a.yaw = a.ride.bt.yaw; a.rideY = p.y - 0.05;
         a.anim = 'sit';
+      } else if (a.mode === 'follow') {
+        // keep station on the leader: in step while walking, turned toward them when stopped
+        const L = a.lead, c = Math.cos(L.yaw), sn = Math.sin(L.yaw);
+        a.pos.set(L.pos.x + c * a.off.x + sn * a.off.z, 0, L.pos.z - sn * a.off.x + c * a.off.z);
+        if (L.mode === 'walk') { a.targetYaw = L.yaw; a.anim = 'walk'; a.speed = L.speed; }
+        else { a.targetYaw = Math.atan2(-(L.pos.x - a.pos.x), -(L.pos.z - a.pos.z)); a.anim = L.patrol ? 'idle' : 'talk'; }
+        let dy = a.targetYaw - a.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+        a.yaw += dy * Math.min(1, dt * 5);
       } else if (a.mode === 'walk') {
         const A = G.nodes[a.from], B = G.nodes[a.to];
         const L = Math.hypot(B.x - A.x, B.z - A.z) || 1;
@@ -592,13 +655,23 @@ export class Crowd {
       const clip = this.looks[a.look].clipInfo[a.anim];
       const rate = a.anim === 'walk' ? (a.speed / 1.3) / clip.dur : 1 / clip.dur;
       a.phase = (a.phase + dt * rate) % 1;
+      if (hidden) continue;
+      // full detail close by, the coarse mesh beyond
+      const d2 = (a.pos.x - camPos.x) ** 2 + (a.pos.z - camPos.z) ** 2;
+      const mesh = d2 < 28 * 28 ? this.meshes[a.look] : this.meshesLo[a.look];
+      const k = mesh._n++;
       const y = a.mode === 'ride' ? a.rideY : a.spot ? a.spot.pos.y : T.height(a.pos.x, a.pos.z);
       dim.q.setFromAxisAngle(dim.up, a.yaw);
-      dim.m4.compose(new THREE.Vector3(a.pos.x, hidden ? -500 : y, a.pos.z), dim.q, dim.s);
-      mesh.setMatrixAt(a.slot, dim.m4);
-      attr.setXYZW(a.slot, clip.start, clip.n, a.phase, 0);
+      dim.m4.compose(dim.p.set(a.pos.x, y, a.pos.z), dim.q, dim.s);
+      mesh.setMatrixAt(k, dim.m4);
+      mesh.geometry.attributes.iAnim.setXYZW(k, clip.start, clip.n, a.phase, 0);
+      this.writeColors(a, mesh, k);
     }
-    for (const m of Object.values(this.meshes)) { m.instanceMatrix.needsUpdate = true; m.geometry.attributes.iAnim.needsUpdate = true; }
+    for (const m of all) {
+      m.count = m._n;
+      m.instanceMatrix.needsUpdate = true;
+      for (const k of ['iAnim', 'iCoat', 'iSkin', 'iHair', 'iLinen', 'iHat']) m.geometry.attributes[k].needsUpdate = true;
+    }
     this.recycle(dt, player || camPos, camPos);
   }
 

@@ -15,6 +15,9 @@ export class CityKit {
   constructor(t, B, seed) {
     this.t = t; this.B = B;
     this.rnd = mulberry32(seed);
+    this.buildings = []; // { a, b, w, d, rot, info } of houses on the streets, for the dressing pass
+    this.paths = []; // paved street segments { a0, b0, a1, b1, width, kind }
+    this.blocks = []; this.plazas = [];
   }
 
   // anchor metres -> town-local (a, b)
@@ -51,7 +54,8 @@ export class CityKit {
   put(fn, a, b, rot, w, d, opts, check = {}) {
     if (!this.free(a, b, w / 2, d / 2, rot, check)) return false;
     this.claim(a, b, w / 2, d / 2, rot);
-    fn(this.B, this.t, this.rnd, a, b, rot, w, d, opts);
+    const info = fn(this.B, this.t, this.rnd, a, b, rot, w, d, opts);
+    this.buildings.push({ a, b, w, d, rot, info: info || {} });
     return true;
   }
 
@@ -61,7 +65,8 @@ export class CityKit {
     const { a, b } = this.L(x, z);
     const r = this.rot(bearing);
     this.claim(a, b, w / 2, d / 2, r);
-    fn(this.B, t, this.rnd, a, b, r, w, d, opts);
+    const info = fn(this.B, t, this.rnd, a, b, r, w, d, opts);
+    this.buildings.push({ a, b, w, d, rot: r, info: { ...(info || {}), special: type } });
     const f = this.dir(bearing);
     const da = a + f.a * (d / 2 + 1.1), db = b + f.b * (d / 2 + 1.1);
     const y = t.groundAt(da, db);
@@ -91,6 +96,7 @@ export class CityKit {
       const cu = i * (g.bu + g.su), cv = j * (g.bv + g.sv);
       const ca = o.a + U.a * cu + V.a * cv, cb = o.b + U.b * cu + V.b * cv;
       blocks.push({ i, j, ca, cb });
+      this.blocks.push({ ca, cb });
       if (g.bollards) for (const [su, sv] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
         // stone guardacantones on the corners, against cart wheels
         const ba = ca + U.a * su * (g.bu / 2 + 0.3) + V.a * sv * (g.bv / 2 + 0.3), bb = cb + U.b * su * (g.bu / 2 + 0.3) + V.b * sv * (g.bv / 2 + 0.3);
@@ -208,6 +214,7 @@ export class CityKit {
     const t = this.t, B = this.B, rnd = this.rnd;
     const len = Math.hypot(a1 - a0, b1 - b0);
     if (len < 1) return;
+    this.paths.push({ a0, b0, a1, b1, width, kind });
     const ua = (a1 - a0) / len, ub = (b1 - b0) / len, na = -ub, nb = ua; // along, across
     const nu = Math.max(1, Math.ceil(len / 2)), nv = 8;
     const base = new THREE.Color(col), tmp = new THREE.Color();
@@ -219,8 +226,8 @@ export class CityKit {
       const land = t.terrain.baseHeight(w.x, w.z) > 0.9;
       const x = Math.abs(v) / (width / 2);
       let k;
-      if (kind === 'paving') k = 1 - 0.28 * Math.exp(-((v / 0.35) ** 2)) - 0.12 * x * x; // gutter down the middle
-      else k = 1 - 0.14 * Math.exp(-(((Math.abs(v) - 0.8) / 0.25) ** 2)) - 0.18 * x ** 3; // ruts; damp, trodden edges
+      if (kind === 'paving') k = 1 - 0.28 * Math.exp(-((v / 0.35) ** 2)) - 0.12 * x * x - 0.3 * x ** 8; // gutter down the middle; dark in the lee of the walls
+      else k = 1 - 0.14 * Math.exp(-(((Math.abs(v) - 0.8) / 0.25) ** 2)) - 0.18 * x ** 3 - 0.2 * x ** 8; // ruts; damp, trodden edges
       k *= 0.92 + 0.16 * Math.sin(a * 0.37 + b * 0.21) * Math.sin(a * 0.13 - b * 0.29);
       tmp.copy(base).multiplyScalar(k);
       return { p: [a, t.groundAt(a, b) + (kind === 'paving' ? 0.05 : 0.035) - (kind === 'paving' ? 0.04 * Math.exp(-((v / 0.35) ** 2)) : 0), b], c: [tmp.r, tmp.g, tmp.b], land };
@@ -251,7 +258,7 @@ export class CityKit {
         // a puddle in a hollow: still water reflecting the sky
         B.add('window', new THREE.CircleGeometry(0.5 + rnd() * 0.9, 9), T(a, y + 0.01, b, rnd() * 3, 1, 0.45 + rnd() * 0.4, 1, -Math.PI / 2), '#5a5e58');
       } else if (r < 0.45) {
-        for (let q = 0; q < 5; q++) B.box('cloth', 0.35 + rnd() * 0.4, 0.015, 0.03, T(a + (rnd() - 0.5) * 0.8, y + 0.01, b + (rnd() - 0.5) * 0.8, rnd() * 3), pick2(['#c8b060', '#b89a50', '#d6c27a'], rnd)); // spilt straw and fodder
+        for (let q = 0; q < 14; q++) B.box('cloth', 0.12 + rnd() * 0.2, 0.008, 0.012, T(a + (rnd() - 0.5) * 0.9, y + 0.005, b + (rnd() - 0.5) * 0.9, rnd() * 3), pick2(['#a08850', '#8a7648', '#b09a60'], rnd)); // spilt straw and fodder
       } else if (r < 0.65) {
         for (let q = 0; q < 3; q++) B.add('plain', new THREE.SphereGeometry(0.09, 5, 3), T(a + (rnd() - 0.5) * 0.4, y, b + (rnd() - 0.5) * 0.4, 0, 1.3, 0.45, 1), '#4a3a26'); // dung
       } else if (r < 0.85) {
@@ -294,6 +301,7 @@ export class CityKit {
     const c = Math.cos(r), s = Math.sin(r);
     const P = (u, v) => ({ a: a + u * c + v * s, b: b - u * s + v * c });
     const y = t.groundAt(a, b);
+    this.plazas.push({ a, b, r, w, d });
     if (o.pave !== false) B.box(o.pave?.[0] || 'cobble', w, 0.16, d, T(a, y + 0.02, b, r), o.pave?.[1] || '#c9bda4');
     this.claim(a, b, w / 2, d / 2, r);
     if (o.fountain !== false) {
@@ -683,7 +691,7 @@ function havana(K) {
   const houseFor = (B, t2, r, a, b, rot, w, d, o) => spanishHouse(B, t2, r, a, b, rot, w, d, o);
   K.grid({
     x: -150, z: 120, bearing: 350, bu: 34, bv: 30, su: 6.5, sv: 6, i: [-5, 6], j: [-3, 5], depth: [9, 13], front: [6.5, 11],
-    house: houseFor, opts: () => ({ storeys: rnd() < 0.38 ? 2 : 1 }), bollards: true, pave: ['paving', '#b4a68e', 0.8],
+    house: houseFor, opts: () => ({ storeys: rnd() < 0.5 ? 2 : 1 }), bollards: true, pave: ['paving', '#b4a68e', 0.8],
   });
   // waterfront: quays along the channel and bay, jetties, cargo
   K.quay([[-14, 10], [-4, 60], [6, 110], [-20, 150], [-45, 165], [-75, 190], [-95, 215], [-112, 245], [-135, 290], [-155, 335]]);

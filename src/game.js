@@ -178,6 +178,8 @@ export class Game {
       return false;
     };
     this.vegetation = new Vegetation(scene, this.terrain, avoid, q);
+    this.vegetation.extraTrees = Object.values(this.towns).flatMap((t) => t.extraTrees || []);
+    this.vegetation.extraPlants = Object.values(this.towns).flatMap((t) => t.extraPlants || []);
     this.wildlife = new Wildlife(scene, this.terrain);
     this.grass = new Grass(scene, this.terrain, avoid, q);
     this.props = props;

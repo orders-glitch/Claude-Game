@@ -8,6 +8,7 @@ import { props, PM } from './props.js';
 import { PLANS, CityKit } from './cities.js';
 import { HARBOURS } from '../game/harbours.js';
 import { geo } from '../game/geo.js';
+import { dress } from './dressing.js';
 
 // cannon_01 is modelled with its muzzle toward +Z; forts face the sea (local -Z)
 const CANNON_YAW = Math.PI;
@@ -396,6 +397,7 @@ export class Town {
     this.B = B;
     const K = new CityKit(this, B, this.plan.seed);
     this.plan.build(K);
+    dress(K, this.port.id);
     // lamps along the streets (not in the pirates' camp)
     if (this.port.style !== 'shanty') {
       let k = 0;

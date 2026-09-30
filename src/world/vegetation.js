@@ -288,6 +288,9 @@ export class Vegetation {
       if (!detailChunk && this.detail.has(type)) return; // understory lives in the close-range chunks only
       (out[type] || (out[type] = [])).push([x, y, z, rotY, scale]);
     };
+    // the towns' own trees (courtyards, squares) and potted plants
+    for (const [kind, x, y, z, ry, sc] of this.extraTrees || []) if (!detailChunk && x >= x0 && x < x0 + size && z >= z0 && z < z0 + size) push(kind, x, y, z, ry, sc);
+    for (const [kind, x, y, z, ry, sc] of this.extraPlants || []) if (detailChunk && x >= x0 && x < x0 + size && z >= z0 && z < z0 + size) push(kind, x, y, z, ry, sc);
     const jungleAt = (x, z) => clamp((terrain.lastIsland ? terrain.lastIsland.jungle : 0.4) + terrain.noise.noise2(x * 0.01, z * 0.01) * 0.35, 0, 1);
     const area = size * size;
     if (!detailChunk) {

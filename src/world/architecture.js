@@ -158,6 +158,37 @@ function door_(B, m, x, y0, z, face, o) {
   }
 }
 
+// a dark rain stain running down a wall from (x, y) for `len` metres, on the face at z (facing `face`)
+function stain(B, m, x, y, len, z, face, wall) {
+  const c = new THREE.Color(wall).multiplyScalar(0.72);
+  const g = new THREE.PlaneGeometry(0.5, len, 1, 4);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const f = (p.getY(i) + len / 2) / len; p.setX(i, p.getX(i) * (0.4 + f * 0.8)); } // narrowing as it runs down
+  B.add('wall', g, m(x, y - len / 2, z + face * 0.03, face < 0 ? Math.PI : 0), '#' + c.getHexString());
+}
+
+// Weathering on a limewashed front: patches where the plaster has fallen away from the rubble stone, damp
+// rising at the foot of the wall, streaks under the window sills
+function weather(B, m, rnd, w, base, H, z, wall) {
+  const n = rnd() < 0.65 ? 1 + Math.floor(rnd() * 3) : 0;
+  for (let k = 0; k < n; k++) {
+    const pw = 0.4 + rnd() * 1.0, ph = 0.3 + rnd() * 0.6;
+    const x = (rnd() - 0.5) * (w - pw - 0.4), y = base + (rnd() < 0.6 ? 0.9 + rnd() * 1.2 : 1 + rnd() * (H - 2));
+    const pts = [];
+    for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, r = 0.65 + rnd() * 0.35; pts.push(new THREE.Vector2(Math.cos(a) * pw / 2 * r, Math.sin(a) * ph / 2 * r)); }
+    const g = new THREE.ShapeGeometry(new THREE.Shape(pts));
+    B.add('stone', g, m(x, y, z - 0.04, Math.PI), pick(['#c8b490', '#bca884', '#d0bc98'], rnd));
+  }
+  // damp creeping up from the ground
+  const c = new THREE.Color(wall).multiplyScalar(0.8);
+  const g = new THREE.PlaneGeometry(w, 1, 12, 1);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) if (p.getY(i) > 0) p.setY(i, 0.5 - 0.5 * rnd() * 0.8);
+  B.add('wall', g, m(0, base + 1.2, z - 0.022, Math.PI), '#' + c.getHexString());
+  if (rnd() < 0.5) stain(B, m, (rnd() - 0.5) * (w - 1), base + H - 0.2, 1 + rnd() * 2, z, -1, wall);
+}
+const AZ_JAR = new THREE.LatheGeometry([[0, 0], [0.22, 0], [0.34, 0.2], [0.4, 0.45], [0.36, 0.72], [0.22, 0.88], [0.25, 1.0], [0.2, 1.0]].map(([x, y]) => new THREE.Vector2(x, y)), 10);
+
 // ---------------------------------------------------------------- Havana
 // Casa de una planta / casa de alto: limewashed stone, clay barrel-tile roofs, tall doors, turned-wood rejas,
 // a wooden balcón corrido under its own little tiled roof (tejaroz) on the upper floor.
@@ -178,6 +209,21 @@ export function spanishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
   if (o.flat || (storeys > 1 && rnd() < 0.3)) {
     B.box('wall', w + 0.1, 0.6, d + 0.1, m(0, top + 0.3, 0), wall);
     B.box('stone', w - 0.5, 0.1, d - 0.5, m(0, top + 0.05, 0), '#b9ad98');
+    // gárgolas: spouts through the parapet, each with the stain it leaves down the wall
+    for (let x = -w / 2 + 1.5; x < w / 2 - 1; x += 3.5 + rnd() * 2) {
+      B.box('roof', 0.18, 0.14, 0.7, m(x, top + 0.1, -d / 2 - 0.3), '#a85e3a');
+      stain(B, m, x, top - 0.1, Math.min(H * 0.8, 3.5 + rnd() * 3), -d / 2, -1, wall);
+    }
+    // life on the azotea: water jars, a line of washing, a pot or two
+    if (rnd() < 0.7) {
+      for (let k = 0; k < 1 + Math.floor(rnd() * 3); k++) { const sc = 0.8 + rnd() * 0.4; B.add('wall', AZ_JAR, m((rnd() - 0.5) * (w - 2), top + 0.1, (rnd() - 0.2) * (d - 2) * 0.5, 0, sc, sc, sc), '#a85a3a'); }
+      if (rnd() < 0.6) {
+        const lx = (w - 2) / 2;
+        for (const k of [-1, 1]) B.box('wood', 0.05, 1.8, 0.05, m(k * lx, top + 0.9, d * 0.15), '#5a4632');
+        B.box('wood', w - 2, 0.02, 0.02, m(0, top + 1.75, d * 0.15), '#d8d0bc');
+        for (let x = -lx + 0.4; x < lx - 0.3; x += 0.6 + rnd() * 0.5) B.box('cloth', 0.45 + rnd() * 0.35, 0.5 + rnd() * 0.5, 0.02, m(x, top + 1.4 - rnd() * 0.2, d * 0.15), pick(['#efe8da', '#e6dcc4', '#b5462e', '#9fb3c4', '#efe8da'], rnd));
+      }
+    }
   } else {
     const rise = Math.min(d * 0.2, 2.2);
     B.add('roof', gableRoofGeometry(w, d, rise, 0.55), m(0, top, 0), roofC);
@@ -195,6 +241,7 @@ export function spanishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
     else window_(B, m, x, base + 2.1, -d / 2, -1, { w: 1.2, h: 2.4, grille: sh, glass: false });
     if (storeys > 1) window_(B, m, x, base + h1 + 1.8, -d / 2, -1, { w: 1.1, h: 2.5, shutter: sh, glass: rnd() < 0.5, lit: rnd() < 0.3 });
   }
+  weather(B, m, rnd, w, base, H, -d / 2, wall);
   if (storeys > 1 && (o.balcony ?? rnd() < 0.75)) {
     const bw = w - 0.8, yb = base + h1 + 0.1;
     B.box('wood', bw, 0.16, 1.1, m(0, yb, -d / 2 - 0.55), '#4a3526');
@@ -220,7 +267,7 @@ export function spanishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
   }
   streetFront(B, t, rnd, m, w, d, base, { rot, shop: storeys > 1 ? 0.35 : 0.22, balconyY: storeys > 1 ? base + h1 + 0.1 : 0 });
   t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2, rot, H);
-  return { top, front: m(0, base, -d / 2) };
+  return { top, front: m(0, base, -d / 2), door: -w / 2 + (doorI + 0.5) * (w / n), base, H, storeys, style: 'spanish', wall };
 }
 
 // Houses along a plaza with an arcade (portales) of stone piers in front of the shops; d includes the arcade
@@ -330,7 +377,7 @@ export function englishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
   if (!gableFront) ridge(B, m, run, top + rise, roofC, roofB);
   streetFront(B, t, rnd, m, w, d, base, { rot, shop: 0.3, lamp: 0.2 });
   t.addCollider(a, b, w / 2 + 0.15, d / 2 + 0.15, rot, H + rise);
-  return { top };
+  return { top, door: -w / 2 + 0.5 * (w / n), base, H, storeys, style: 'english', piazza: !!(o.piazza ?? false) };
 }
 
 // ---------------------------------------------------------------- Tortuga
@@ -364,6 +411,7 @@ export function frenchCase(B, t, rnd, a, b, rot, w, d, o = {}) {
   window_(B, m, 0, base + 1.4, d / 2, 1, { w: 0.9, h: 1.2, shutter: sh, glass: false });
   streetFront(B, t, rnd, m, w, d + gd * 2, base, { rot, shop: 0.12, lamp: 0.1 });
   t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2 + gd / 2, rot, H + rise);
+  return { door: -w / 2 + (Math.floor(n / 2) + 0.5) * (w / n), base, H, storeys: 1, style: 'french', gallery: gd };
 }
 
 // ---------------------------------------------------------------- Nassau

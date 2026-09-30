@@ -41,7 +41,7 @@ function spec(role) {
     case 'soldier_france':
       return { ...male, outfit: 'outfit_male_ranger', coat: '#e6e2d6', tint: '#ffffff', hair: 'hair_simpleparted', hat: 'tricorne', hatColor: '#141210', trim: '#1f3d78', skin: pick(SKIN_TONES.slice(0, 3)), hairColor: '#e8e4dc' };
     case 'townswoman':
-      return { ...female, outfit: 'outfit_female_peasant', coat: pick(['#8a4a5a', '#5a6a8a', '#8a7a4a', '#6a4a3a', '#a86a4a']), tint: pick(EARTH), hair: pick(['hair_buns', 'hair_long', 'hair_buns']), hat: r() < 0.5 ? (r() < 0.5 ? 'bonnet' : 'headwrap') : null, hatColor: pick(['#eee6d6', '#b8442a', '#e0d0b0', '#6a8a9a']), skin: pick(SKIN_TONES), hairColor: pick(HAIR) };
+      return { ...female, outfit: 'outfit_female_peasant', coat: pick(['#8a4a5a', '#5a6a8a', '#8a7a4a', '#6a4a3a', '#a86a4a']), tint: pick(EARTH), hair: pick(['hair_buns', 'hair_long', 'hair_buns']), hat: r() < 0.5 ? (r() < 0.5 ? 'bonnet' : 'headwrap') : null, hatColor: pick(['#d9d0bd', '#b8442a', '#e0d0b0', '#6a8a9a']), skin: pick(SKIN_TONES), hairColor: pick(HAIR) };
     case 'merchant':
       return { ...male, outfit: 'outfit_male_ranger', coat: '#2a3a5a', tint: '#ffffff', hair: 'hair_simpleparted', hat: 'tricorne', hatColor: '#1a1a1a', trim: '#c9a13a', skin: pick(SKIN_TONES.slice(0, 3)), hairColor: '#e8e4dc' };
     case 'sailor':
@@ -181,6 +181,32 @@ function hatMesh(kind, color, trim) {
     g.add(b);
     g.position.set(0, 0, 0.01);
   }
+  else if (kind === 'basket') {
+    // a flat market basket carried on the head on a rolled-cloth pad, heaped with fruit
+    const pad = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.025, 5, 12), m);
+    pad.rotation.x = Math.PI / 2; pad.position.y = 0.02;
+    const wick = new THREE.MeshStandardMaterial({ color: '#b08a50', roughness: 0.95 }); wick.userData.keep = true;
+    const bk = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.13, 0.16, 14, 1, true), wick);
+    bk.position.y = 0.12;
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(0.13, 12), wick); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.045;
+    g.add(pad, bk, floor);
+    const fruit = [['#e08a2a', '#d87a20'], ['#c8b030', '#9aa83a'], ['#8a3a2a', '#b84a2a'], ['#6a8a3a', '#4a7a2a']][Math.floor(Math.random() * 4)];
+    // heaped up in a mound above the rim
+    for (let k = 0; k < 13; k++) {
+      const fm = new THREE.MeshStandardMaterial({ color: fruit[k % 2], roughness: 0.6 }); fm.userData.keep = true;
+      const f = new THREE.Mesh(new THREE.SphereGeometry(0.062, 7, 5), fm);
+      const ring = k < 7 ? 0 : k < 11 ? 1 : 2, a = k * 2.4, r = [0.12, 0.07, 0.02][ring];
+      f.position.set(Math.cos(a) * r, 0.2 + ring * 0.06, Math.sin(a) * r);
+      g.add(f);
+    }
+  } else if (kind === 'bundle') {
+    // a sack or a bale in sailcloth, balanced on the head
+    const pad = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.025, 5, 12), m);
+    pad.rotation.x = Math.PI / 2; pad.position.y = 0.02;
+    const sack = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.36, 4, 10), m); // lying across the head, tied at the ends
+    sack.rotation.z = Math.PI / 2; sack.scale.set(1, 1, 0.85); sack.position.y = 0.14;
+    g.add(pad, sack);
+  }
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return g;
 }
@@ -302,7 +328,7 @@ class Humans {
       const unit = this.unit || 1;
       // world-space placement at the measured top of the skull, facing the model's forward axis
       const top = (this.headTop && this.headTop[sp.sex]) ?? (hw.y + 0.18 * unit);
-      const drop = { tricorne: 0.05, bandana: 0.1, headwrap: 0.1, straw: 0.06, bonnet: 0.1 }[sp.hat] ?? 0.08;
+      const drop = { tricorne: 0.05, bandana: 0.1, headwrap: 0.1, straw: 0.06, bonnet: 0.1, basket: 0.02, bundle: 0.02 }[sp.hat] ?? 0.08;
       const worldM = new THREE.Matrix4().compose(new THREE.Vector3(hw.x, top - drop * unit, hw.z + 0.005 * unit), new THREE.Quaternion(), new THREE.Vector3(unit, unit, unit));
       const local = new THREE.Matrix4().copy(head.matrixWorld).invert().multiply(worldM);
       local.decompose(holder.position, holder.quaternion, holder.scale);

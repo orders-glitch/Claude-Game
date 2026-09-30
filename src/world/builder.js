@@ -74,6 +74,7 @@ export class Builder {
       const mesh = new THREE.Mesh(merged, mat);
       mesh.castShadow = castShadow && name !== 'window' && name !== 'windowLit' && name !== 'glow';
       mesh.receiveShadow = receiveShadow;
+      if (mat.alphaTest > 0 && mat.map) mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: mat.map, alphaTest: mat.alphaTest }); // leaves cast leaf shadows
       mesh.name = name;
       group.add(mesh);
     }
@@ -139,6 +140,32 @@ export async function loadTownTextures(base = './textures/town/') {
   }));
 }
 
+// Leaf cards for creepers and shrubs: three sheets side by side (green creeper, bougainvillea, flowering
+// shrub), painted leaf by leaf, cut out with alpha
+function foliageTexture() {
+  const W = 768, H = 256;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  let seed = 7; const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let sheet = 0; sheet < 3; sheet++) {
+    const x0 = sheet * 256;
+    for (let i = 0; i < 520; i++) {
+      // denser toward the middle of the card, ragged at the edges
+      const u = 0.5 + (r() - 0.5) * (0.6 + r() * 0.4), v = 0.5 + (r() - 0.5) * (0.6 + r() * 0.4);
+      const flower = sheet > 0 && r() < (sheet === 1 ? 0.55 : 0.25);
+      const g = 60 + r() * 70;
+      x.fillStyle = flower
+        ? (sheet === 1 ? `rgb(${190 + r() * 50},${30 + r() * 40},${100 + r() * 50})` : `rgb(${230 + r() * 25},${200 + r() * 50},${80 + r() * 60})`)
+        : `rgb(${g * 0.45},${g + 20},${g * 0.35})`;
+      x.save(); x.translate(x0 + 8 + u * 240, 8 + v * 240); x.rotate(r() * Math.PI * 2);
+      x.beginPath(); x.ellipse(0, 0, flower ? 6 : 9, flower ? 5 : 4, 0, 0, Math.PI * 2); x.fill(); x.restore();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 let _materials = null;
 export function sharedMaterials() {
   if (_materials) return _materials;
@@ -161,6 +188,7 @@ export function sharedMaterials() {
     paving: ph('paving', stoneTexture, { roughness: 0.95 }),
     road: ph('road', stoneTexture, { roughness: 1 }),
     cloth: std({ roughness: 1, side: THREE.DoubleSide }),
+    foliage: std({ map: foliageTexture(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.8 }),
     metal: std({ roughness: 0.5, metalness: 0.6 }),
     plain: std({}),
     // crown glass: dark panes that catch the sky
