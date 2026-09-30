@@ -249,7 +249,10 @@ export class Ship {
           const wz = -nx * b.sin + nz * b.cos;
           this.position.x += wx * push;
           this.position.z += wz * push;
-          this.speed *= 0.9;
+          // fend off and slide along it: only the way into it is lost
+          const into = -(this.forward.x * wx + this.forward.z * wz);
+          if (into > 0) this.speed *= 1 - Math.min(1, into) * 0.25;
+          this.sway *= 0.5;
         }
       }
     }

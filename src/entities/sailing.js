@@ -126,7 +126,11 @@ export function sailStep(ship, dt, w) {
   const windage = -Math.max(Math.sin(beta), 0.4) * windSide * (R.windage + 0.15) * 0.05 * (q / (WIND_SPEED * WIND_SPEED)) * (1 - clamp(Math.abs(ship.speed) / (C.V * 0.4), 0, 1));
   // a square-rigger's backed headsails help her round through the wind when tacking
   const assist = backed ? Math.sign(ship.rudder || 0) * 0.05 : 0;
-  const targetRate = rudderRate + windage + assist;
+  // with no way on her the rudder can't bite: the crew back the headsails and brace the yards (or man the
+  // sweeps) to turn her bow, slowly
+  const lowWay = 1 - clamp(Math.abs(ship.speed) / (C.V * 0.3), 0, 1);
+  const kedge = (ship.rudder || 0) * 0.075 * lowWay * (ship.sailSet > 0.05 ? 1 : 0.6);
+  const targetRate = rudderRate + windage + assist + kedge;
   const tauYaw = 0.9 + cls.length * 0.035;
   ship.yawRate = (ship.yawRate || 0) + (targetRate - (ship.yawRate || 0)) * clamp(dt / tauYaw, 0, 1);
   // heel to the side force against the ship's stability

@@ -192,6 +192,32 @@ export class Town {
 
   pier(a0) { this.buildPier(this.B, a0); }
 
+  findBerth(head) {
+    const T = this.terrain, deep = -7;
+    const clearOf = (x, z, r) => this.shipBlockers.every((b) => {
+      const dx = x - b.x, dz = z - b.z;
+      const lx = dx * b.cos - dz * b.sin, lz = dx * b.sin + dz * b.cos;
+      return Math.abs(lx) > b.hw + r || Math.abs(lz) > b.hd + r;
+    });
+    // the length of deep water ahead along a heading (forward = (-sin h, -cos h))
+    const run = (x, z, h) => { let d = 0; for (; d < 900; d += 10) { const px = x - Math.sin(h) * d, pz = z - Math.cos(h) * d; if (T.height(px, pz) > deep + 1 || !clearOf(px, pz, 6)) break; } return d; };
+    let best = null;
+    for (let r = 20; r <= 110; r += 10) for (let k = 0; k < 24; k++) {
+      const ang = (k / 24) * Math.PI * 2;
+      const x = head.x + Math.cos(ang) * r, z = head.z + Math.sin(ang) * r;
+      if (T.height(x, z) > deep || !clearOf(x, z, 18)) continue;
+      // deep all round her, so she can swing
+      let ok = true;
+      for (let j = 0; j < 8 && ok; j++) { const a2 = (j / 8) * Math.PI * 2; if (T.height(x + Math.cos(a2) * 22, z + Math.sin(a2) * 22) > deep + 1.5) ok = false; }
+      if (!ok) continue;
+      let bh = this.dir, bl = -1;
+      for (let j = 0; j < 32; j++) { const h = (j / 32) * Math.PI * 2; const l = run(x, z, h); if (l > bl) { bl = l; bh = h; } }
+      const score = bl - r * 1.5;
+      if (!best || score > best.score) best = { x, z, heading: bh, score };
+    }
+    return best || { ...this.toWorld(0, -60), heading: this.dir };
+  }
+
   // is a world point inside the built town (streets, lots)? used to keep trees out of it
   inTown(x, z, ground = true) {
     // trampled town ground: no undergrowth (trees and palms may still stand between the houses)
@@ -509,9 +535,9 @@ export class Town {
     this.shipBlockers.push({ x: endW.x, z: endW.z, hw: width * 1.6 + 1, hd: 4, cos: rect.cos, sin: rect.sin });
     if (!secondary) {
       this.pierLen = len;
-      // where the player ship moors: alongside the pier head, parallel to the pier
-      const berth = this.toWorld(a0 + width * 1.6 + 9, endZ + 4);
-      this.berth = { x: berth.x, z: berth.z, heading: this.dir };
+      // where the player ship lies: in deep water near the pier head, clear of the pier, her bow along the
+      // longest clear run of deep water (out through the harbour mouth, not onto the shoals)
+      this.berth = this.findBerth(this.toWorld(a0, endZ));
       this.pierEnd = this.toWorld(a0 + width * 1.2, endZ, deckY + 0.2);
       this.doors.push({ type: 'board', label: 'Board your ship', pos: this.pierEnd.clone() });
       this.spawnPoint = this.toWorld(a0, -8, deckY + 0.2);

@@ -126,6 +126,7 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(this.state.settings.fov, window.innerWidth / window.innerHeight, 0.3, 24000);
 
     await step(0.1, 'Stowing the cargo…');
+    this.shipLibrary = shipLibrary;
     await Promise.all([props.load(), weapons.load(), shipLibrary.load(), animals.load(), loadTownTextures(), loadTerrainTextures(), flora.load([...TREE_TYPES, ...PALM_TYPES, 'pachira_aquatica_01', 'calathea_orbifolia_01', 'anthurium_botany_01'])]);
     flora.bakeImpostors(renderer);
     this.flora = flora;
@@ -166,6 +167,8 @@ export class Game {
     animals.init(scene, this);
     this.animals = animals;
     this.shipBlockers.push(...this.harbour.blockers);
+    // your ship lies in the roads off each port, clear of the piers, the shoals and the ships at anchor
+    for (const t of this.townList) t.berth = this.roadsBerth(t);
     this.sky = new SkySystem(scene, renderer, q);
     this.weather = new Weather(scene);
     this.wind = this.weather.wind;
@@ -323,6 +326,7 @@ export class Game {
     } else {
       const port = this.towns[(pos && pos.port) || s.lastPort] || this.towns.nassau;
       this.createPlayerShip(port.berth.x, port.berth.z, port.berth.heading);
+      this.swingToFairWind(this.playerShip);
       this.playerShip.anchored = true;
       this.playerShip.sailTarget = 0;
       this.playerShip.sailSet = 0;
@@ -535,16 +539,55 @@ export class Game {
     });
   }
 
+  // Point a ship lying at rest toward open water on a good point of sail: among the headings with a long clear
+  // run of deep water, the one nearest a broad reach for today's wind
+  swingToFairWind(p) {
+    const T = this.terrain;
+    const beam = p.cls.beam;
+    const clearOf = (x, z, r) => this.shipBlockers.every((b) => {
+      const dx = x - b.x, dz = z - b.z;
+      if (dx * dx + dz * dz > 90000) return true;
+      const lx = dx * b.cos - dz * b.sin, lz = dx * b.sin + dz * b.cos;
+      return Math.abs(lx) > b.hw + r || Math.abs(lz) > b.hd + r;
+    });
+    // first make sure she lies in open water, clear of piers and of the ships at anchor
+    if (!clearOf(p.position.x, p.position.z, p.cls.length * 0.6)) {
+      let spot = null;
+      for (let r = 15; r <= 150 && !spot; r += 15) for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2, x = p.position.x + Math.cos(a) * r, z = p.position.z + Math.sin(a) * r;
+        if (T.height(x, z) < -7 && clearOf(x, z, p.cls.length * 0.6)) { spot = { x, z }; break; }
+      }
+      if (spot) { p.position.x = spot.x; p.position.z = spot.z; }
+    }
+    const w = this.windAt(p.position.x, p.position.z);
+    const run = (h) => { let d = 0; for (; d < 700; d += 10) { const px = p.position.x - Math.sin(h) * d, pz = p.position.z - Math.cos(h) * d; if (T.height(px, pz) > -6 || !clearOf(px, pz, beam)) break; } return d; };
+    const runs = [];
+    for (let j = 0; j < 36; j++) { const h = (j / 36) * Math.PI * 2; runs.push([h, run(h)]); }
+    const longest = Math.max(...runs.map((r) => r[1]));
+    let best = null;
+    for (const [h, l] of runs) {
+      if (l < Math.min(250, longest * 0.6)) continue;
+      // angle between her heading and where the wind comes from: 0 dead to windward, PI dead downwind
+      const fx = -Math.sin(h), fz = -Math.cos(h);
+      const off = Math.acos(Math.max(-1, Math.min(1, -(fx * w.x + fz * w.z))));
+      const sail = 1 - Math.abs(off - 2.1) / 2.1; // best on a broad reach (~120° off the wind)
+      const score = sail * 2 + l / Math.max(1, longest);
+      if (!best || score > best.score) best = { h, score };
+    }
+    if (best) { p.heading = best.h; p.updateAxes(); }
+  }
+
   boardOwnShip() {
     this.transition(600, () => {
       this.despawnNPCs(true);
       this.currentTown = null;
       this.enterSail();
       const p = this.playerShip;
-      // push away from the pier a little
+      // the boats tow her head round to a fair heading for leaving harbour, and push her off
+      this.swingToFairWind(p);
       p.speed = 2;
       this.missions.onEvent({ type: 'board' });
-      this.ui.toast('All hands! Make sail with [W].', 'info');
+      this.ui.toast('The boat pulls you out to her in the roads. All hands! Make sail with [W].', 'info');
     });
   }
 
@@ -711,6 +754,11 @@ export class Game {
     if (inp.hit('KeyW')) { p.sailTarget = Math.min(2, p.sailTarget + 1); p.anchored = false; this.audio.ui('click'); }
     if (inp.hit('KeyS')) { p.sailTarget = Math.max(0, p.sailTarget - 1); this.audio.ui('click'); }
     p.rudderInput = (inp.down('KeyA') ? 1 : 0) - (inp.down('KeyD') ? 1 : 0);
+    // caught head to wind with sail set: tell the captain how to get out of irons
+    if (p.sailSet > 0.4 && p.effTheta > 2.45 && Math.abs(p.speed) < 1.2) {
+      this.ironsT = (this.ironsT || 0) + dt;
+      if (this.ironsT > 2.5 && !this.ironsHinted) { this.ironsHinted = true; this.ui.toast('In irons — she\'s head to wind. Put the helm over with [A] or [D] and hold it till the sails fill.', 'warn', 6000); }
+    } else { this.ironsT = 0; if (p.speed > 3) this.ironsHinted = false; }
     if (inp.hit('KeyR')) {
       p.anchored = !p.anchored;
       if (p.anchored) p.sailTarget = 0;
@@ -1785,6 +1833,29 @@ export class Game {
   }
 
   // open, deep water off a port where a ship arriving on a long course heaves into view
+  // the nearest open water to the pier head with sea room on every side
+  roadsBerth(town) {
+    const T = this.terrain, head = town.pierEnd || town.coast;
+    const clear = (x, z, r) => this.shipBlockers.every((b) => {
+      const dx = x - b.x, dz = z - b.z;
+      const lx = dx * b.cos - dz * b.sin, lz = dx * b.sin + dz * b.cos;
+      return Math.abs(lx) > b.hw + r || Math.abs(lz) > b.hd + r;
+    });
+    for (let r = 50; r <= 900; r += 25) {
+      for (let k = 0; k < 32; k++) {
+        const a = (k / 32) * Math.PI * 2, x = head.x + Math.cos(a) * r, z = head.z + Math.sin(a) * r;
+        if (T.height(x, z) > -8 || !clear(x, z, 45)) continue;
+        let ok = true;
+        for (let j = 0; j < 12 && ok; j++) {
+          const a2 = (j / 12) * Math.PI * 2;
+          for (const d of [40, 90, 140]) if (T.height(x + Math.cos(a2) * d, z + Math.sin(a2) * d) > -6) { ok = false; break; }
+        }
+        if (ok) return { x, z, heading: town.berth?.heading ?? town.dir };
+      }
+    }
+    return town.berth;
+  }
+
   roadstead(town) {
     const T = this.terrain, b = town.berth, sx = town.sea.x, sz = town.sea.y;
     const deep = (x, z) => T.height(x, z) < -5;
