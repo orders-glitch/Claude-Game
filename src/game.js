@@ -16,6 +16,7 @@ import { Ocean } from './world/ocean.js';
 import { SkySystem } from './world/sky.js';
 import { Weather } from './world/weather.js';
 import { Vegetation } from './world/vegetation.js';
+import { Grass } from './world/grass.js';
 import { Wildlife } from './world/wildlife.js';
 import { Town, buildSalvageCamp } from './world/town.js';
 import { sharedMaterials } from './world/builder.js';
@@ -28,6 +29,7 @@ import { PlayerWalker, NPC, lookFor } from './entities/actors.js';
 import { modelLibrary } from './entities/modelLibrary.js';
 import { humans } from './entities/humans.js';
 import { props } from './world/props.js';
+import { weapons } from './entities/weapons.js';
 import { flora, TREE_TYPES } from './world/flora.js';
 import { loadTerrainTextures } from './world/terrainMaterial.js';
 import { TerrainDetail } from './world/terrain.js';
@@ -118,9 +120,10 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(this.state.settings.fov, window.innerWidth / window.innerHeight, 0.3, 24000);
 
     await step(0.1, 'Stowing the cargo…');
-    await Promise.all([props.load(), loadTerrainTextures(), flora.load(TREE_TYPES)]);
+    await Promise.all([props.load(), weapons.load(), loadTerrainTextures(), flora.load([...TREE_TYPES, 'pachira_aquatica_01', 'calathea_orbifolia_01', 'anthurium_botany_01'])]);
     flora.bakeImpostors(renderer);
     this.flora = flora;
+    this.weapons = weapons;
     await step(0.12, 'Surveying the islands…');
     this.terrain = new Terrain(ISLANDS);
     this.towns = {};
@@ -164,6 +167,7 @@ export class Game {
     };
     this.vegetation = new Vegetation(scene, this.terrain, avoid, q);
     this.wildlife = new Wildlife(scene, this.terrain);
+    this.grass = new Grass(scene, this.terrain, null, q);
     this.props = props;
     props.flush(scene, { shadows: q !== 'low', viewDist: q === 'low' ? 500 : 900 });
 
@@ -599,6 +603,7 @@ export class Game {
     this.vegetation.update(dt, this.camera.position, this.wind.strength * (1 + this.sky.storm));
     props.update(this.camera.position);
     flora.update(this.camera.position, this.sky);
+    if (this.camera.position.y - this.terrain.height(this.camera.position.x, this.camera.position.z) < 60) this.grass.update(this.camera.position);
     this.terrainDetail.update(this.camera.position);
     this.wildlife.update(dt, this.focus, this.sky.nightFactor + this.sky.storm * 0.8);
     if (this.mode !== 'title') {

@@ -229,6 +229,21 @@ export class Vegetation {
       });
       if (kind !== 'shelf') detail.add(kind);
     }
+    // photoscanned tropical understory (flora): kind -> [model, target height in metres]
+    const PLANTS = { pachira: ['pachira_aquatica_01', 2.4], calathea: ['calathea_orbifolia_01', 1.1], anthurium: ['anthurium_botany_01', 1.2] };
+    const plantScale = {};
+    for (const [kind, [file, hgt]] of Object.entries(PLANTS)) {
+      if (!flora.has(file)) continue;
+      const T = flora.types[file];
+      typeMap[kind] = T.parts.map((p, i) => {
+        const name = kind + i;
+        this.types[name] = { geo: p.geometry, mat: addSway(p.material, 0.03), shadow: false };
+        return name;
+      });
+      plantScale[kind] = hgt / T.height;
+      detail.add(kind);
+    }
+    const plants = Object.keys(plantScale);
     this.detailDist = quality === 'low' ? 110 : quality === 'medium' ? 170 : 230;
 
     const buckets = new Map(); // chunkKey -> type -> [matrices]
@@ -237,6 +252,9 @@ export class Vegetation {
     const species = TREE_TYPES.filter((t) => flora.has(t));
     this.trees = {}; // species -> [[x,y,z,yaw,scale]] for the flora near-field
     const push = (type, x, y, z, rotY, scale, tilt = 0) => {
+      if (plantScale[type]) scale *= plantScale[type];
+      // real plants replace the old blob bushes
+      if (type === 'bush' && plants.length) { const k = plants[Math.floor(((x * 0.37 + z * 0.61) % 1 + 1) % 1 * plants.length)]; return push(k, x, y, z, rotY, 0.8 + (scale - 0.6) * 0.3); }
       if (type === 'tree' && species.length) {
         const sp = species[Math.floor(((x * 12.9898 + z * 78.233) % 1 + 1) % 1 * species.length) % species.length];
         const entry = [x, y + 0.25, z, rotY, 0.7 + (scale - 0.75) / 0.75 * 0.5];
@@ -292,6 +310,25 @@ export class Vegetation {
       }
     }
 
+    // closed forest in the jungle interiors
+    if (species.length) {
+      for (const is of terrain.islands) {
+        const area = Math.PI * is.rx * is.rz;
+        const n = Math.floor(area / 300 * density);
+        const ax = is.rx + is.warpAmp, az = is.rz + is.warpAmp;
+        for (let i = 0; i < n; i++) {
+          const lx = (rnd() * 2 - 1) * ax, lz = (rnd() * 2 - 1) * az;
+          const x = is.x + lx * is.cos + lz * is.sin;
+          const z = is.z - lx * is.sin + lz * is.cos;
+          const h = terrain.height(x, z);
+          if (h < 5 || avoid(x, z)) continue;
+          if (1 - terrain.normal(x, z).y > 0.55) continue;
+          const jun = clamp(is.jungle + terrain.noise.noise2(x * 0.01, z * 0.01) * 0.35, 0, 1);
+          if (rnd() < jun * jun * 0.9) push('tree', x, h - 0.3, z, rnd() * 6, 0.75 + rnd() * 0.75);
+        }
+      }
+    }
+
     // understory and shoreline detail
     if (detail.size || typeMap.shelf) {
       for (const is of terrain.islands) {
@@ -318,7 +355,8 @@ export class Vegetation {
             continue;
           }
           const jun = clamp(is.jungle + terrain.noise.noise2(x * 0.01, z * 0.01) * 0.35, 0, 1);
-          if (r < 0.22 + jun * 0.4) push('fern', x, h - 0.05, z, rnd() * 6, 1.7 + rnd() * 1.5);
+          if (plants.length && r > 0.9 - jun * 0.1) push(plants[Math.floor(rnd() * plants.length)], x, h - 0.05, z, rnd() * 6, 0.7 + rnd() * 0.6);
+          else if (r < 0.22 + jun * 0.4) push('fern', x, h - 0.05, z, rnd() * 6, 1.7 + rnd() * 1.5);
           else if (r < 0.3 + jun * 0.45) push('sorrel', x, h - 0.02, z, rnd() * 6, 5 + rnd() * 5);
           else if (r < 0.315 + jun * 0.46) push('stump', x, h - 0.1, z, rnd() * 6, 0.9 + rnd() * 0.7);
         }

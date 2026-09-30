@@ -12,6 +12,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { weaponMesh } from './rig.js';
 import { props } from '../world/props.js';
+import { weapons } from './weapons.js';
 
 const BASE = './models/characters/';
 const _v0 = new THREE.Vector3(), _v1 = new THREE.Vector3();
@@ -223,7 +224,10 @@ export class GltfRig {
     this.weaponKind = kind;
     if (this.weapon) this.socketR.remove(this.weapon);
     // scanned blades where available (a cutlass may be carried as a saber, machete or boarding hatchet)
-    const scanned = kind === 'cutlass' ? props.weapon(this.blade || 'wooden_handle_saber') : null;
+    // museum scans first (cutlass, officer's sword, pistol, musket), then Poly Haven blades, then procedural
+    const museum = kind === 'cutlass' ? (this.blade && this.blade !== 'cutlass' ? null : weapons.create(this.blade === 'basket_sword' ? 'basket_sword' : 'cutlass'))
+      : kind === 'pistol' || kind === 'musket' ? weapons.create(kind) : null;
+    const scanned = museum || (kind === 'cutlass' ? props.weapon(this.blade || 'wooden_handle_saber') : null);
     if (scanned) scanned.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     this.weapon = kind && this.hasHand ? (scanned || weaponMesh(kind)) : null;
     if (this.weapon && this.grip) {

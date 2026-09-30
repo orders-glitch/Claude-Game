@@ -17,6 +17,7 @@ const WAVE_DEFS = [
 
 export class Ocean {
   constructor(scene, terrain, quality = 'high') {
+    this.terrain = terrain;
     this.time = 0;
     this.seaState = 1.0;
     this.waves = WAVE_DEFS.map((w) => {
@@ -96,7 +97,10 @@ export class Ocean {
       dz += q * A * w.dz * cf;
       dy += A * Math.sin(f);
     }
-    out.x = dx; out.y = dy; out.z = dz;
+    // same shallow-water damping as the shader
+    const g = this.terrain ? this.terrain.quickHeight(x, z) : -40;
+    const t0 = Math.min(1, Math.max(0, (g + 5) / 5.5)), k = 1 - t0 * t0 * (3 - 2 * t0);
+    out.x = dx * k; out.y = dy * k; out.z = dz * k;
     return out;
   }
 
@@ -146,6 +150,8 @@ uniform float uSea;
 uniform vec4 uWaves[6];
 uniform float uWaveQ[6];
 uniform vec3 uCamPos;
+uniform sampler2D uHeightMap;
+uniform float uWorldHalf;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vHeight;
@@ -173,6 +179,9 @@ void main() {
     nrm.z -= w.y * wa * cf;
     nrm.y -= q * wa * sf;
   }
+  // waves die away in the shallows so crests never stand up through the beach
+  float ground = texture2D(uHeightMap, (wp.xz + uWorldHalf) / (uWorldHalf * 2.0)).r;
+  fade *= 1.0 - smoothstep(-5.0, 0.5, ground);
   disp *= fade;
   nrm = normalize(mix(vec3(0.0, 1.0, 0.0), nrm, fade));
   wp.xyz += disp;

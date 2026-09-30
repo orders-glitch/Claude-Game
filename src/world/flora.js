@@ -13,7 +13,7 @@ export const floraUniforms = {
   uSunCol: { value: new THREE.Color(1, 1, 1) },
   uSky: { value: new THREE.Color(0.5, 0.6, 0.7) },
   uGround: { value: new THREE.Color(0.3, 0.28, 0.2) },
-  uNear: { value: 70 },
+  uNear: { value: 48 },
 };
 
 const IMPOSTOR_VERT = /* glsl */ `
@@ -68,9 +68,10 @@ const IMPOSTOR_FRAG = /* glsl */ `
     // baked normals are in the tree's frame; rotate by the instance yaw
     float cy = cos(vYaw), sy = sin(vYaw);
     n = normalize(vec3(n.x * cy + n.z * sy, n.y, -n.x * sy + n.z * cy));
-    float sun = max(dot(n, uSunDir), 0.0);
-    vec3 amb = mix(uGround, uSky, n.y * 0.5 + 0.5);
-    vec3 col = a.rgb * (amb + uSunCol * sun * 0.9);
+    // wrapped diffuse: foliage transmits light, so the shadowed side never goes black
+    float sun = clamp(dot(n, uSunDir) * 0.6 + 0.4, 0.0, 1.0);
+    vec3 amb = mix(uGround, uSky, n.y * 0.5 + 0.5) * 1.5;
+    vec3 col = a.rgb * (amb + uSunCol * sun);
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -124,8 +125,9 @@ class Flora {
   has(name) { return !!this.types[name]; }
 
   // Render 8 side views of each tree into albedo and normal atlases.
-  bakeImpostors(renderer) {
+  bakeImpostors(renderer, names = TREE_TYPES) {
     for (const [name, T] of Object.entries(this.types)) {
+      if (!names.includes(name)) continue;
       const w = T.radius * 2.1, h = T.height * 1.04;
       const scene = new THREE.Scene();
       const mats = { albedo: [], normal: [] };

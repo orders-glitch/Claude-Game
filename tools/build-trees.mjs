@@ -21,7 +21,7 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
 const PLANTS = {
   island_tree_01: { leaves: 32000, wood: 3000, height: 9, tex: 512 },
   island_tree_02: { leaves: 32000, wood: 3000, height: 8, tex: 512 },
-  island_tree_03: { leaves: 32000, wood: 3000, height: 10, tex: 512 },
+  island_tree_03: { leaves: 32000, wood: 3000, height: 10, tex: 512, drop: ['island_tree_03'] },
   tree_small_02: { leaves: 34000, wood: 3000, height: 11, tex: 512 },
   // understory plants are a handful of big leaves: plain simplification to a total budget
   pachira_aquatica_01: { total: 5000, height: 2.2, tex: 512 },
@@ -106,6 +106,8 @@ for (const [id, cfg] of Object.entries(PLANTS)) {
     await MeshoptSimplifier.ready;
     await doc.transform(flatten(), dedup());
     const report = [];
+    // scans that stand on a slab of their own ground: remove it
+    for (const m of doc.getRoot().listMeshes()) for (const p of m.listPrimitives()) if ((cfg.drop || []).includes(p.getMaterial()?.getName())) { m.removePrimitive(p); p.dispose(); report.push('dropped base'); }
     if (cfg.total) {
       await doc.transform(weld({}));
       const before = doc.getRoot().listMeshes().flatMap((m) => m.listPrimitives()).reduce((s, p) => s + triCount(p), 0);
@@ -153,6 +155,27 @@ for (const [id, cfg] of Object.entries(PLANTS)) {
       const s = cfg.height / (b.max[1] - b.min[1]);
       for (const n of doc.getRoot().listScenes()[0].listChildren()) { n.setScale(n.getScale().map((v) => v * s)); n.setTranslation([n.getTranslation()[0] * s, -b.min[1] * s, n.getTranslation()[2] * s]); }
       await doc.transform(flatten());
+    }
+    // some scans stand on a slab of their ground: drop low triangles away from the trunk
+    if (cfg.cutBase) {
+      for (const m of doc.getRoot().listMeshes()) for (const p of m.listPrimitives()) {
+        const P = p.getAttribute('POSITION'), I = p.getIndices();
+        if (!I) continue;
+        const idx = I.getArray(), keep = [], v = [0, 0, 0];
+        let cx = 0, cz = 0, n = 0;
+        for (let i = 0; i < P.getCount(); i++) { P.getElement(i, v); if (v[1] > cfg.cutBase.y && v[1] < cfg.cutBase.y + 1.5) { cx += v[0]; cz += v[2]; n++; } }
+        if (n) { cx /= n; cz /= n; }
+        let cut = 0;
+        for (let t = 0; t < idx.length; t += 3) {
+          let low = true, far = false;
+          for (let k = 0; k < 3; k++) { P.getElement(idx[t + k], v); if (v[1] > cfg.cutBase.y) low = false; if (Math.hypot(v[0] - cx, v[2] - cz) > cfg.cutBase.r) far = true; }
+          if (low && far) { cut++; continue; }
+          keep.push(idx[t], idx[t + 1], idx[t + 2]);
+        }
+        I.setArray(new Uint32Array(keep));
+        compactPrimitive(p);
+        if (cut) report.push(`base -${cut}`);
+      }
     }
     await doc.transform(
       textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [cfg.tex, cfg.tex], quality: 82 }),
