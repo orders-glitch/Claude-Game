@@ -1473,14 +1473,15 @@ export class Game {
 
   collideWalker(w) {
     w.contact = null;
-    if (w.isPlayer) {
-      // the player: only what stands above their feet blocks them, and the wall they run into is remembered
+    if (w.isPlayer || w.roofWalker) {
+      // the player (and anyone up on the roofs): only what stands above their feet blocks them, and the wall they run into is remembered
       // (for climbing)
       for (const c of this.collidersAround(w.pos.x, w.pos.z)) {
         const dx = w.pos.x - c.x, dz = w.pos.z - c.z;
         const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
         const px = c.hw + w.radius - Math.abs(lx), pz = c.hd + w.radius - Math.abs(lz);
         if (px <= 0 || pz <= 0) continue;
+        if (c.bottom !== undefined && w.pos.y + 1.75 < c.bottom) continue; // passing underneath
         const top = colliderSurface(c, Math.max(-c.hw, Math.min(c.hw, lx)), Math.max(-c.hd, Math.min(c.hd, lz)));
         if (w.pos.y >= top - 0.45) continue; // on it, or stepping up onto it
         let ox = 0, oz = 0;
@@ -1496,7 +1497,7 @@ export class Game {
         if (dx * dx + dz * dz > (c.hw + c.hd + 2) ** 2) continue;
         const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
         const px = c.hw + w.radius - Math.abs(lx), pz = c.hd + w.radius - Math.abs(lz);
-        if (px > 0 && pz > 0) {
+        if (px > 0 && pz > 0 && !(c.bottom !== undefined && w.pos.y + 1.75 < c.bottom)) {
           let ox = 0, oz = 0;
           if (px < pz) ox = Math.sign(lx) * px; else oz = Math.sign(lz) * pz;
           w.pos.x += ox * c.cos + oz * c.sin;
@@ -1517,7 +1518,7 @@ export class Game {
   blockedAt(x, z, r, y) {
     for (const list of this.collidersNear(x, z)) {
       for (const c of list) {
-        if (y > (c.top ?? 12)) continue;
+        if (y > (c.top ?? 12) || (c.bottom !== undefined && y < c.bottom)) continue;
         const dx = x - c.x, dz = z - c.z;
         const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
         if (Math.abs(lx) < c.hw + r && Math.abs(lz) < c.hd + r) return true;
@@ -1568,6 +1569,28 @@ export class Game {
     }
   }
 
+  // lookouts pacing the roofs of the colonial towns (flat azoteas and roof ridges near the player)
+  spawnLookouts(town, focus) {
+    const nation = town.port.nation;
+    if (nation === 'pirate') return;
+    const n = this.quality === 'low' ? 2 : this.quality === 'medium' ? 4 : 6;
+    const roofs = town.colliders.filter((c) => c.roof && !c.bottom && !c.rope && c.top - this.groundAt(c.x, c.z) > 5 && Math.max(c.hw, c.hd) > 4 && Math.hypot(c.x - focus.x, c.z - focus.z) < 160);
+    for (let i = 0; i < n && roofs.length; i++) {
+      const c = roofs.splice(Math.floor(Math.random() * roofs.length), 1)[0];
+      const R = c.roof;
+      // a line to pace: along the ridge, or down the middle of a flat roof
+      const alongX = R.flat ? c.hw >= c.hd : R.ridge !== 'z';
+      const L = (alongX ? c.hw : c.hd) - 1, off = !R.flat && R.ridge === 'x' ? R.dz : 0;
+      const P = (s) => { const lx = alongX ? s * L : 0, lz = alongX ? off : s * L; const x = c.x + lx * c.cos + lz * c.sin, z = c.z - lx * c.sin + lz * c.cos; return new THREE.Vector3(x, this.surfaceAt(x, z, c.top + 1, 0.1), z); };
+      const a = P(-1), b = P(1);
+      const npc = new NPC(this, lookFor('guard', nation), { x: a.x, y: a.y, z: a.z, kind: 'guard', nation, town, post: a, health: 80 });
+      npc.roofWalker = true;
+      npc.lookout = { a, b };
+      npc.weapon = 'musket';
+      this.npcs.push(npc);
+    }
+  }
+
   spawnTownNPCs(town) {
     const nodes = town.streetNodes;
     const n = this.quality === 'low' ? 10 : this.quality === 'medium' ? 20 : 30;
@@ -1581,6 +1604,7 @@ export class Game {
       const npc = new NPC(this, lookFor(kind, nation), { x: p.x + rand(-2, 2), y: p.y, z: p.z + rand(-2, 2), kind, nation, town });
       this.npcs.push(npc);
     }
+    this.spawnLookouts(town, focus);
     const guardN = nation === 'pirate' ? 0 : this.quality === 'low' ? 3 : 5;
     const posts = town.guardPosts.length ? town.guardPosts : nodes;
     for (let i = 0; i < guardN; i++) {

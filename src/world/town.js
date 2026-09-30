@@ -270,6 +270,8 @@ export class Town {
         ? { flat: true, y: roof.y, lip: roof.lip || 0 }
         : { y: roof.y, rise: roof.rise, ridge: roof.ridge, X: roof.w / 2 + roof.o, Z: roof.d / 2 + roof.o, dz: roof.dz || 0 };
       c.top = roof.flat ? roof.y + (roof.lip || 0) : roof.y + roof.rise;
+      if (roof.bottom !== undefined) c.bottom = roof.bottom; // something overhead (a balcony, an awning): people pass beneath
+      if (roof.rope) c.rope = true;
     }
     this.colliders.push(c);
   }

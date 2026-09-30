@@ -9,6 +9,7 @@ import { colliderSurface } from '../world/surface.js';
 
 const GRAV = 22;
 const HANG = 2.05; // feet below the hands when hanging from a ledge
+const _jv = new THREE.Vector3();
 // if a role has no artist model, try a close substitute before falling back to the procedural rig
 const ROLE_FALLBACK = { pirate_female: 'pirate', soldier_pirate: 'pirate', sailor: 'pirate' };
 function modelRole(role) {
@@ -53,6 +54,7 @@ export class Walker {
 
   // desired horizontal velocity (world)
   physics(dt, wishX, wishZ, accel = 12) {
+    if (this.roofWalker) return this.roofPhysics(dt, wishX, wishZ, accel);
     const k = 1 - Math.exp(-accel * dt);
     this.vel.x += (wishX - this.vel.x) * k;
     this.vel.z += (wishZ - this.vel.z) * k;
@@ -88,6 +90,23 @@ export class Walker {
     }
     // wading: sink to water line
     const water = this.pos.y < 0 ? 0 : null;
+  }
+
+  // someone keeping to the roofs (a lookout): stands on the roof surface and stops at the edge rather than
+  // stepping off it
+  roofPhysics(dt, wishX, wishZ, accel) {
+    const g = this.game;
+    const k = 1 - Math.exp(-accel * dt);
+    this.vel.x += (wishX - this.vel.x) * k;
+    this.vel.z += (wishZ - this.vel.z) * k;
+    const nx = this.pos.x + this.vel.x * dt, nz = this.pos.z + this.vel.z * dt;
+    const ahead = g.surfaceAt(nx + this.vel.x * 0.25, nz + this.vel.z * 0.25, this.pos.y);
+    if (ahead < this.pos.y - 0.8 && !this.dead) { this.vel.set(0, 0, 0); } else { this.pos.x = nx; this.pos.z = nz; }
+    g.collideWalker(this);
+    const under = g.surfaceAt(this.pos.x, this.pos.z, this.pos.y);
+    this.vy -= GRAV * dt;
+    this.pos.y += this.vy * dt;
+    if (this.pos.y <= under || (this.vy <= 0 && this.pos.y - under < 0.4)) { this.pos.y = under; this.vy = 0; this.onGround = true; }
   }
 
   animate(dt) {
@@ -242,9 +261,9 @@ export class PlayerWalker extends Walker {
       if (input.hit('Space')) {
         if (hs > 4.8) {
           // a running leap: long and flat, arms flung forward
-          const f = Math.max(hs, 8.2) / hs;
+          const f = Math.max(hs, 9.2) / hs; // clears a lane from eave to eave
           this.vel.x *= f; this.vel.z *= f;
-          this.vy = 7.0; this.leaping = true;
+          this.vy = 7.3; this.leaping = true;
           this.moveT = 0; this.leapT = 0;
         } else { this.vy = 6.2; this.leaping = false; this.leapT = 0; }
         this.mode = 'air'; this.onGround = false; this.fallTop = this.pos.y;
@@ -296,6 +315,17 @@ export class PlayerWalker extends Walker {
       this.mode = 'air'; this.onGround = false; this.fallTop = this.pos.y; this.leaping = false; this.leapT = 1;
     }
     if (this.mode === 'air') this.fallTop = Math.max(this.fallTop, this.pos.y);
+    // on a line or a plank: the feet find the middle of it and the body goes along it, arms out
+    const rope = this.mode === 'ground' && g.lastSurface?.rope ? g.lastSurface : null;
+    this.onRope = !!rope;
+    if (rope) {
+      const Z = { x: rope.sin, z: rope.cos }, X = { x: rope.cos, z: -rope.sin };
+      const lz = (this.pos.x - rope.x) * Z.x + (this.pos.z - rope.z) * Z.z;
+      const k2 = Math.min(1, dt * 12);
+      this.pos.x -= Z.x * lz * k2; this.pos.z -= Z.z * lz * k2;
+      const va = this.vel.x * X.x + this.vel.z * X.z;
+      this.vel.x = X.x * va; this.vel.z = X.z * va;
+    }
   }
 
   landed(y) {
@@ -370,6 +400,23 @@ export class PlayerWalker extends Walker {
     return Math.max(0, W.axis === 'x' ? R.X - W.c.hw : R.Z - W.c.hd);
   }
 
+  // the lowest ledge standing out overhead that the hands reach as we climb (its outer face, parallel to ours)
+  overheadLedge(W, y) {
+    const qx = this.pos.x + W.n.x * 0.6, qz = this.pos.z + W.n.z * 0.6;
+    let best = null;
+    for (const c of this.game.collidersAround(qx, qz)) {
+      if (c === W.c || c.bottom === undefined) continue;
+      if (c.bottom <= y + 1.0 || c.bottom > y + HANG + 0.15) continue;
+      const dx = qx - c.x, dz = qz - c.z;
+      const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
+      if (Math.abs(lx) > c.hw || Math.abs(lz) > c.hd) continue;
+      if (!best || c.bottom < best.bottom) best = c;
+    }
+    if (!best) return null;
+    const dX = best.cos * W.n.x - best.sin * W.n.z, dZ = best.sin * W.n.x + best.cos * W.n.z; // our normal in its axes
+    return Math.abs(dX) > Math.abs(dZ) ? { c: best, axis: 'x', sign: Math.sign(dX) } : { c: best, axis: 'z', sign: Math.sign(dZ) };
+  }
+
   // place the body against the wall at (along, feet height y), `out` metres further out from it
   pinToWall(W, along, y, out = 0) {
     const c = W.c;
@@ -414,6 +461,21 @@ export class PlayerWalker extends Walker {
     const top = this.wallTop(W, W.along);
     const floor = this.game.surfaceAt(this.pos.x + W.n.x * 0.4, this.pos.z + W.n.z * 0.4, this.pos.y + 0.2, 0.2);
     if (y + HANG >= top) { y = top - HANG; this.mode = 'hang'; } // reached the eaves
+    // a balcony, a canopy or an awning overhead: take hold of its edge instead of climbing through it
+    if (up > 0) {
+      const L = this.overheadLedge(W, y);
+      if (L) {
+        this.wall = this.wallFrame(L);
+        const W2 = this.wall;
+        W2.along = Math.max(-W2.half + 0.35, Math.min(W2.half - 0.35, W2.along));
+        this.pinToWall(W2, W2.along, this.wallTop(W2, W2.along) - HANG);
+        this.mode = 'hang';
+        this.game.audio.thud(this.pos);
+        return;
+      }
+    }
+    // climbing down past the underside of a ledge: nothing left to hold, drop to the street
+    if (W.c.bottom !== undefined && y + HANG < W.c.bottom - 0.1) return this.letGo(W);
     if (y <= floor + 0.05 && up < 0) { this.pos.y = floor; this.mode = 'ground'; this.onGround = true; this.pinToWall(W, W.along, floor); this.backOff(W, 0.3); return; }
     const yy = Math.max(y, floor);
     this.pinToWall(W, W.along, yy, this.eaveOut(W) * smooth(top - HANG - 1.2, top - HANG, yy));
@@ -485,6 +547,16 @@ export class PlayerWalker extends Walker {
     st.moveBlend = this.moveBlend;
     this.wasLeap = this.leaping || this.moveAnim === 'leap';
     super.animate(dt);
+    // when the body is re-seated in one step (onto a ledge's edge, off a wall), glide the model across
+    this.visOff = this.visOff || new THREE.Vector3();
+    if (this.prevPos) {
+      const jump = _jv.subVectors(this.pos, this.prevPos);
+      const expected = (Math.hypot(this.vel.x, this.vel.z) + Math.abs(this.vy)) * dt * 1.5 + 0.25;
+      if (jump.length() > expected && jump.length() < 4) this.visOff.sub(jump);
+    } else this.prevPos = new THREE.Vector3();
+    this.prevPos.copy(this.pos);
+    this.visOff.multiplyScalar(Math.exp(-10 * dt));
+    this.root.position.add(this.visOff);
   }
 
   dispose() {
@@ -572,6 +644,7 @@ export class NPC extends Walker {
     let wishX = 0, wishZ = 0, speed = 0;
     const toP = player && !player.dead ? player.pos.clone().sub(this.pos) : null;
     const dP = toP ? Math.hypot(toP.x, toP.z) : Infinity;
+    if (this.lookout) this.watchRoofs(dt, player, dP);
     const hostile = this.hostile || g.isWalkerHostile(this);
     this.animState.aim = false;
     if (this.spot && (this.fleeT > 0 || (hostile && this.kind !== 'civilian') || (this.kind === 'civilian' && g.combatNear && dP < 30))) this.leaveSpot();
@@ -673,7 +746,31 @@ export class NPC extends Walker {
     this.waitT = rand(0.5, 2);
   }
 
+  // A lookout on the roofs: a warning to anyone caught up there, then musket balls. Once provoked they stay
+  // hostile; they keep to their roof and stop at its edge.
+  watchRoofs(dt, player, dP) {
+    if (this.hostile || !player || player.dead) return;
+    const g = this.game;
+    const up = player.mode !== 'ground' || player.pos.y - g.groundAt(player.pos.x, player.pos.z) > 2.2;
+    if (up && dP < 30) {
+      if (!this.warnT) {
+        const call = this.nation === 'spain' ? '¡Eh! ¡Baja del tejado!' : this.nation === 'france' ? 'Hé ! Descendez du toit !' : 'You there! Get off the roof!';
+        g.ui.toast(call + ' — a lookout has seen you', 'warn', 2600);
+        g.audio.grunt(this.pos);
+      }
+      this.warnT = (this.warnT || 0) + dt;
+      const face = Math.atan2(-(player.pos.x - this.pos.x), -(player.pos.z - this.pos.z));
+      this.yaw = dampAngle(this.yaw, face, 6, dt);
+      if (this.warnT > 4) { this.hostile = true; g.ui.toast('The lookout opens fire!', 'warn', 2000); }
+    } else if (this.warnT) this.warnT = Math.max(0, this.warnT - dt * 0.5);
+  }
+
   pickTarget() {
+    if (this.lookout) {
+      // pace between the two ends of the roof
+      this.lookoutEnd = !this.lookoutEnd;
+      return (this.lookoutEnd ? this.lookout.a : this.lookout.b).clone();
+    }
     const nodes = this.town?.streetNodes;
     if (this.kind === 'guard' && this.post) {
       const a = Math.random() * Math.PI * 2;

@@ -39,6 +39,15 @@ function framer(a, b, rot) {
 // local (a, b) of a point in a building's frame
 function at(m, x, z) { const p = new THREE.Vector3().applyMatrix4(m(x, 0, z)); return { a: p.x, b: p.z }; }
 
+// Something that stands out from a wall overhead — a balcony, a canopy, an awning, a porch roof — as a ledge
+// the climber hangs from and pulls up onto, and people in the street walk under. Centred at (x, z) in the
+// building's frame, w along the wall, d out from it; `y` its floor, `lip` a railing's height, `bottom` its
+// underside.
+function ledge(t, m, rot, x, z, w, d, y, lip, bottom) {
+  const p = at(m, x, z);
+  t.addCollider(p.a, p.b, w / 2, d / 2, rot, 0, { y, flat: true, lip, bottom });
+}
+
 // Life on a street front: a shop with its goods set out on the street, a painted sign on an iron bracket,
 // an awning; a lamp on a bracket by the door; pots of flowers and a hanging on the balcony.
 const SIGNS = ['#7a2a1a', '#1f4a6a', '#2f5a2a', '#6a4a1a', '#3a2a4a', '#8a6a2a'];
@@ -74,6 +83,7 @@ export function streetFront(B, t, rnd, m, w, d, base, o = {}) {
       const aw = Math.min(w - 0.6, 3 + rnd() * 3), x = (rnd() - 0.5) * (w - aw);
       const col = ['#d8cbb0', '#b5462e', '#e8e0cc', '#3d6a8a', '#c9a13a', '#8a4a3a'][Math.floor(rnd() * 6)];
       B.box('cloth', aw, 0.04, 1.8, m(x, base + 3.1, fz - 0.85, 0, 1, 1, 1, 0.3), col);
+      ledge(t, m, o.rot, x, fz - 0.85, aw, 1.8, base + 3.1, 0, base + 2.8); // the canvas takes a climber's weight, just
       for (const k of [-1, 1]) B.box('wood', 0.05, 0.05, 1.8, m(x + k * aw / 2, base + 3.05, fz - 0.85, 0, 1, 1, 1, 0.3), '#4a3a2a');
     }
     // hanging sign
@@ -253,6 +263,8 @@ export function spanishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
     const nb = Math.round(bw / 0.3);
     for (let i = 0; i <= nb; i++) B.box('wood', 0.05, 0.9, 0.05, m(-bw / 2 + i * (bw / nb), yb + 0.53, -d / 2 - 1.06), '#4a3526');
     B.box('roof', bw + 0.3, 0.1, 1.4, m(0, base + H - 0.4, -d / 2 - 0.62, 0, 1, 1, 1, -0.28), roofC); // tejaroz
+    ledge(t, m, rot, 0, -d / 2 - 0.55, bw, 1.1, yb + 0.08, 1.0, yb - 0.3); // the balcony, railing and all
+    ledge(t, m, rot, 0, -d / 2 - 0.7, bw + 0.3, 1.4, base + H - 0.3, 0, base + H - 0.6); // its little tiled roof
     for (const k of [-1, 1]) B.box('wood', 0.1, H - h1 - 0.6, 0.1, m(k * bw / 2, yb + (H - h1 - 0.6) / 2, -d / 2 - 1.05), '#3b2a1e');
   }
   // side walls: barred windows (and the odd side door) where the neighbour doesn't hide them
@@ -376,6 +388,7 @@ export function englishHouse(B, t, rnd, a, b, rot, w, d, o = {}) {
     for (let x = -w / 2 + 0.2; x <= w / 2; x += Math.max(2.4, w / Math.ceil(w / 3))) B.box('wood', 0.16, ph, 0.16, m(x, base + ph / 2, -d / 2 - pd + 0.15), '#4a3a2c');
     B.box('wood', w, 0.18, 0.2, m(0, base + ph, -d / 2 - pd + 0.15), '#4a3a2c');
     B.box('shingle', w + 0.2, 0.08, pd + 0.4, m(0, base + ph + 0.35, -d / 2 - pd / 2 + 0.1, 0, 1, 1, 1, -0.22), roofC);
+    ledge(t, m, rot, 0, -d / 2 - pd / 2 - 0.1, w, pd + 0.2, base + ph + 0.4, 0, base + ph); // the piazza roof
   }
   if (!gableFront) ridge(B, m, run, top + rise, roofC, roofB);
   streetFront(B, t, rnd, m, w, d, base, { rot, shop: 0.3, lamp: 0.2 });

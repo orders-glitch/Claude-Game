@@ -10,10 +10,10 @@ const pick = (arr, rnd) => arr[Math.floor(rnd() * arr.length) % arr.length];
 
 // per-town taste: how much of each thing
 const STYLE = {
-  havana: { jars: 0.35, pots: 0.45, creeper: 0.28, chair: 0.3, ristra: 0.16, cargo: 0.25, laundry: 0.3, shade: 0.14, mats: 0.5, courtyard: 0.6, density: 0.55, cloth: ['#efe8da', '#e6dcc4', '#b5462e', '#9fb3c4', '#c9a13a', '#efe8da', '#6a8a5a'] },
-  portroyal: { jars: 0.05, pots: 0.15, creeper: 0.08, chair: 0.12, ristra: 0.04, cargo: 0.5, laundry: 0.35, shade: 0.03, mats: 0.35, courtyard: 0.35, density: 0.5, cloth: ['#efe8da', '#e6dcc4', '#d8d0bc', '#9fb3c4', '#7a1c1c', '#efe8da'] },
-  tortuga: { jars: 0.15, pots: 0.35, creeper: 0.3, chair: 0.2, ristra: 0.06, cargo: 0.3, laundry: 0.25, shade: 0.0, mats: 0.4, courtyard: 0.3, density: 0.5, cloth: ['#efe8da', '#e6dcc4', '#7a2e24', '#5e7482', '#c9b48a'] },
-  nassau: { jars: 0.1, pots: 0.05, creeper: 0.05, chair: 0.1, ristra: 0.02, cargo: 0.6, laundry: 0.1, shade: 0.0, mats: 0.6, courtyard: 0, density: 0.3, cloth: ['#d8cbb0', '#cfc1a2', '#b5462e', '#2a3450'] },
+  havana: { jars: 0.35, pots: 0.45, creeper: 0.28, chair: 0.3, ristra: 0.16, cargo: 0.25, laundry: 0.3, shade: 0.14, plank: 0.12, mats: 0.5, courtyard: 0.6, density: 0.55, cloth: ['#efe8da', '#e6dcc4', '#b5462e', '#9fb3c4', '#c9a13a', '#efe8da', '#6a8a5a'] },
+  portroyal: { jars: 0.05, pots: 0.15, creeper: 0.08, chair: 0.12, ristra: 0.04, cargo: 0.5, laundry: 0.35, shade: 0.03, plank: 0.15, mats: 0.35, courtyard: 0.35, density: 0.5, cloth: ['#efe8da', '#e6dcc4', '#d8d0bc', '#9fb3c4', '#7a1c1c', '#efe8da'] },
+  tortuga: { jars: 0.15, pots: 0.35, creeper: 0.3, chair: 0.2, ristra: 0.06, cargo: 0.3, laundry: 0.25, shade: 0.0, plank: 0.1, mats: 0.4, courtyard: 0.3, density: 0.5, cloth: ['#efe8da', '#e6dcc4', '#7a2e24', '#5e7482', '#c9b48a'] },
+  nassau: { jars: 0.1, pots: 0.05, creeper: 0.05, chair: 0.1, ristra: 0.02, cargo: 0.6, laundry: 0.1, shade: 0.0, plank: 0, mats: 0.6, courtyard: 0, density: 0.3, cloth: ['#d8cbb0', '#cfc1a2', '#b5462e', '#2a3450'] },
 };
 
 // a terracotta jar (tinaja) or flower pot, as a lathe
@@ -199,18 +199,27 @@ export function dress(K, id) {
       const hw = p.width / 2;
       // walls on both sides close enough to string something between
       if (u - lastLine > 7 && hw < 5) {
-        const L = inside(ca + na * (hw + 0.9), cb + nb * (hw + 0.9)), R = inside(ca - na * (hw + 0.9), cb - nb * (hw + 0.9));
-        if (L && R && L.info.H && R.info.H) {
+        // find the actual walls either side: step out from the middle of the street until we're inside a house
+        const wallAt = (sg) => { for (let o = 0.5; o < hw + 1.5; o += 0.1) { const h = inside(ca + na * o * sg, cb + nb * o * sg); if (h) return { h, o }; } return null; };
+        const WL = wallAt(1), WR = wallAt(-1);
+        const L = WL?.h, R = WR?.h;
+        if (L && R && L.info.H && R.info.H && WL.o + WR.o < 9 && WL.o + WR.o > 3.5) {
           const r = rnd();
-          const yTop = Math.min(L.info.base + L.info.H, R.info.base + R.info.H) - 0.6;
-          const span = hw * 2 + 0.6, ang = Math.atan2(na, nb);
-          const y0 = Math.max(t.groundAt(ca, cb) + 3.4, yTop);
+          const eave = Math.min(L.info.base + L.info.H, R.info.base + R.info.H);
+          const yTop = eave + 0.02; // level with the eaves, so it can be walked from one roof to the other
+          // re-centre between the two walls, the line's ends just into them
+          const shift = (WL.o - WR.o) / 2;
+          const cA = ca + na * shift, cB = cb + nb * shift;
+          const span = WL.o + WR.o + 0.3, ang = Math.atan2(na, nb);
+          const y0 = Math.max(t.groundAt(cA, cB) + 3.4, yTop);
+          const acrossRot = Math.atan2(-nb, na); // a collider whose length runs across the street
           if (r < S.laundry) {
-            // washing on a line from window to window
-            B.box('wood', 0.02, 0.02, span, T(ca, y0, cb, ang, 1, 1, 1, 0), '#d8d0bc');
+            // washing on a line from window to window, strung just under the eaves: taut enough to walk
+            B.box('wood', 0.035, 0.035, span, T(cA, y0, cB, ang, 1, 1, 1, 0), '#d8d0bc');
+            t.addCollider(cA, cB, span / 2, 0.3, acrossRot, 0, { y: y0 + 0.02, flat: true, lip: 0, bottom: y0 - 0.25, rope: true });
             for (let v = -span / 2 + 0.5; v < span / 2 - 0.4; v += 0.55 + rnd() * 0.4) {
               const w = 0.4 + rnd() * 0.5, hh = 0.5 + rnd() * 0.7, sag = 0.25 * (1 - (2 * v / span) ** 2);
-              B.box('cloth', 0.02, hh, w, T(ca + na * v, y0 - sag - hh / 2, cb + nb * v, ang + (rnd() - 0.5) * 0.25), pick(S.cloth, rnd));
+              B.box('cloth', 0.02, hh, w, T(cA + na * v, y0 - sag - hh / 2, cB + nb * v, ang + (rnd() - 0.5) * 0.25), pick(S.cloth, rnd));
             }
             lastLine = u;
           } else if (r < S.laundry + S.shade) {
@@ -220,8 +229,15 @@ export function dress(K, id) {
             const pa = g.attributes.position;
             for (let i = 0; i < pa.count; i++) pa.setZ(i, -0.35 * (1 - (2 * pa.getX(i) / span) ** 2));
             g.computeVertexNormals();
-            B.add('cloth', g, T(ca + ua * d / 2, y0 + 0.4, cb + ub * d / 2, ang + Math.PI / 2, 1, 1, 1, -Math.PI / 2), pick(['#e8e0cc', '#d8cbb0', '#c9b48a', '#b5462e', '#e6dcc4'], rnd));
+            B.add('cloth', g, T(cA + ua * d / 2, y0 + 0.4, cB + ub * d / 2, ang + Math.PI / 2, 1, 1, 1, -Math.PI / 2), pick(['#e8e0cc', '#d8cbb0', '#c9b48a', '#b5462e', '#e6dcc4'], rnd));
             lastLine = u + d;
+          } else if (r < S.laundry + S.shade + S.plank) {
+            // a plank laid from eave to eave, the roofers' short cut across the lane
+            const yp = eave + 0.12, pl = span + 1.2;
+            B.box('wood', 0.4, 0.08, pl, T(cA, yp, cB, ang), '#7a6448');
+            for (const k of [-1, 1]) B.box('wood', 0.45, 0.1, 0.12, T(cA + na * k * (pl / 2 - 0.3), yp - 0.06, cB + nb * k * (pl / 2 - 0.3), ang), '#5a4632');
+            t.addCollider(cA, cB, pl / 2, 0.3, acrossRot, 0, { y: yp + 0.04, flat: true, lip: 0, bottom: yp - 0.2, rope: true });
+            lastLine = u;
           }
         }
       }
