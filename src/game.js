@@ -1710,6 +1710,9 @@ export class Game {
     return new THREE.Vector3(b.x + sx * 90, 0, b.z + sz * 90);
   }
 
+  // the local wind at a point (gusts, shifts, lee of the land)
+  windAt(x, z) { return this.weather.windAt(x, z, this.terrain); }
+
   canSaveHere() { return true; }
 
   save() {

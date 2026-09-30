@@ -343,8 +343,11 @@ export class UI {
       $('bar-crew').style.width = `${clamp(p.crew / p.cls.crewMax, 0, 1) * 100}%`;
       $('crew-val').textContent = p.crew;
       $('speed-val').textContent = p.speedKnots.toFixed(1);
-      $('pos-sail').textContent = pointOfSail(p);
-      $('pos-sail').className = p.eff < 0.25 && p.sailTarget > 0 ? 'bad' : '';
+      // point of sail, and the apparent wind, heel and leeway a sailing master would watch
+      const deg = (r) => Math.round(Math.abs(r) * 180 / Math.PI);
+      const leeway = Math.abs(p.speed) > 1 ? deg(Math.atan2(p.sway || 0, Math.abs(p.speed))) : 0;
+      $('pos-sail').innerHTML = `${pointOfSail(p)}<br><small>apparent wind ${deg(p.aw?.beta ?? 0)}° ${p.aw?.side > 0 ? 'to port' : 'to starboard'} · ${(p.aw?.speed * 0.45 || 0).toFixed(0)} kn · heel ${deg(p.heel || 0)}° · leeway ${leeway}°</small>`;
+      $('pos-sail').className = (p.backed || p.luff > 0.5 || p.eff < 0.2) && p.sailTarget > 0 ? 'bad' : '';
       const pips = $('sail-pips').children;
       pips[0].classList.toggle('on', p.sailTarget >= 1);
       pips[1].classList.toggle('on', p.sailTarget >= 2);
@@ -979,12 +982,15 @@ const RUMOURS = [
 function pointOfSail(p) {
   if (p.anchored) return 'At anchor';
   if (p.sailTarget === 0) return 'Sails furled';
-  const t = p.effTheta;
-  if (p.eff < 0.25) return 'In irons — bear away!';
-  if (t < 0.5) return 'Running before the wind';
-  if (t < 1.25) return 'Broad reach';
-  if (t < 1.95) return 'Beam reach';
-  return 'Close-hauled';
+  if (p.backed) return p.speed < 0 ? 'Taken aback — making sternway!' : 'Taken aback — put the helm over!';
+  const t = Math.PI - p.effTheta; // true wind angle off the bow
+  if (t < (p.cls.rig === 'sloop' ? 0.62 : 0.95) || p.luff > 0.6) return 'In irons — sails luffing, bear away!';
+  if (p.luff > 0.25) return 'Pinching — sails shivering';
+  if (t < 1.25) return 'Close-hauled';
+  if (t < 1.4) return 'Close reach';
+  if (t < 1.85) return 'Beam reach';
+  if (t < 2.6) return 'Broad reach';
+  return 'Running before the wind';
 }
 
 function windName(w) {

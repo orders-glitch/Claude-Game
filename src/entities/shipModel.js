@@ -57,7 +57,7 @@ export function shipMaterials() { return materials(); }
 
 function sailMaterial(tint) {
   const uniforms = {
-    uFill: { value: 1 }, uFurl: { value: 1 }, uBrace: { value: 0 }, uBoom: { value: 0 }, uSide: { value: 1 },
+    uFill: { value: 1 }, uFurl: { value: 1 }, uLuff: { value: 0 }, uBrace: { value: 0 }, uBoom: { value: 0 }, uSide: { value: 1 },
     uDamage: { value: 0 }, uTime: shipTime,
   };
   const mat = new THREE.MeshStandardMaterial({
@@ -69,7 +69,7 @@ function sailMaterial(tint) {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         attribute float aBillow; attribute float aTop; attribute vec2 aMast; attribute float aType;
-        uniform float uFill; uniform float uFurl; uniform float uBrace; uniform float uBoom; uniform float uSide; uniform float uTime;
+        uniform float uFill; uniform float uFurl; uniform float uLuff; uniform float uBrace; uniform float uBoom; uniform float uSide; uniform float uTime;
         varying vec2 vSailUv;`)
       .replace('#include <begin_vertex>', `
         vec3 transformed = position;
@@ -78,7 +78,7 @@ function sailMaterial(tint) {
           float f = max(uFurl, 0.05);
           transformed.y = aTop - (aTop - transformed.y) * f;
           if (aType > 0.5) transformed.z = aMast.y + (transformed.z - aMast.y) * f;
-          float flutter = sin(uTime * 7.0 + position.y * 1.3 + position.x) * 0.08 * (1.0 - uFill);
+          float flutter = sin(uTime * 7.0 + position.y * 1.3 + position.x) * 0.08 * (1.0 - abs(uFill)) + sin(uTime * 13.0 + position.y * 2.1 + position.x * 1.7) * 0.25 * uLuff;
           float bel = aBillow * (uFill * 0.9 + 0.1) * (0.35 + 0.65 * f);
           if (aType < 0.5) transformed.z -= bel * 2.4 + flutter;
           else transformed.x += (bel * 2.0 + flutter) * uSide;

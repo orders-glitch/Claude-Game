@@ -1,5 +1,6 @@
 // Captain AI: trading voyages, patrols, pursuit, broadside manoeuvring, flight and surrender.
 import * as THREE from 'three';
+import { calibrate } from './sailing.js';
 import { clamp, wrapAngle, rand } from '../core/noise.js';
 import { BALL_SPEED, GRAVITY } from './ship.js';
 
@@ -127,32 +128,50 @@ export class ShipAI {
     }
     this.desired = desired;
     const err = wrapAngle(desired - s.heading);
-    s.rudderInput = clamp(err * 2.5, -1, 1);
+    // (damped by the turn already under way: the hull carries its swing)
+    s.rudderInput = clamp(err * 2.5 - (s.yawRate || 0) * 2.2, -1, 1);
   }
 
+  // Beating to windward like a sailing master: sail long boards close-hauled and go about only when the goal
+  // has fallen well onto the other tack's side (the lay line). A square-rigger that is short of way wears
+  // (turns away through the downwind side) instead of risking missing stays and being taken aback.
   avoidIrons(desired, world, dt) {
     const s = this.ship;
     const w = world.wind;
     const windFrom = headingTo(-w.x, -w.z); // heading pointing into the wind
-    const closest = 0.78 + (1 - s.cls.upwind) * 0.5;
+    const closest = calibrate(s.cls).tack + 0.08; // this rig's best angle to windward
     const off = wrapAngle(desired - windFrom);
-    if (Math.abs(off) < closest) {
-      this.tackTimer -= dt;
-      if (this.tackTimer <= 0) { this.tackSide *= -1; this.tackTimer = rand(25, 45); }
-      return wrapAngle(windFrom + this.tackSide * (closest + 0.12));
+    this.boardT = (this.boardT || 0) + dt;
+    if (this.wearing) {
+      // bear away until running, then come up onto the new tack round the stern
+      const down = wrapAngle(windFrom + Math.PI);
+      if (Math.abs(wrapAngle(s.heading - down)) < 0.6) this.wearing = false;
+      else return wrapAngle(s.heading + this.wearing * 0.9);
     }
-    return desired;
+    if (Math.abs(off) >= closest) return desired;
+    // on which tack does the goal lie? keep the current board until it is well past the wind's eye
+    const favoured = off >= 0 ? 1 : -1;
+    if (favoured !== this.tackSide && Math.abs(off) > 0.28 && this.boardT > 35) {
+      this.tackSide = favoured;
+      this.boardT = 0;
+      const square = s.cls.rig !== 'sloop';
+      const way = s.speed / calibrate(s.cls).V;
+      if (square && (way < 0.55 || Math.random() < 0.35)) this.wearing = -favoured; // turn away from the new tack
+    }
+    return wrapAngle(windFrom + this.tackSide * closest);
   }
 
   avoidLand(desired, world) {
     const s = this.ship;
     const t = world.terrain;
+    // keep a fathom under the keel: deep-draughted ships give the banks a wide berth
+    const shoal = -Math.max(4, (s.model?.draft || 2) + 1.8);
     const probe = (h) => {
       const fx = -Math.sin(h), fz = -Math.cos(h);
       let clear = 1e9;
       for (const dist of [30, 70, 120, 190, 270]) {
         const x = s.position.x + fx * dist, z = s.position.z + fz * dist;
-        if (t.quickHeight(x, z) > -4) { clear = dist; break; }
+        if (t.quickHeight(x, z) > shoal) { clear = dist; break; }
       }
       return clear;
     };

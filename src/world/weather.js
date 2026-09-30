@@ -1,6 +1,7 @@
 // Weather: trade winds, cloud cover, squalls with rain, lightning and heavy seas.
 import * as THREE from 'three';
-import { clamp, damp, lerp, rand } from '../core/noise.js';
+import { clamp, damp, lerp, rand, Simplex } from '../core/noise.js';
+import { WIND_SPEED } from '../entities/sailing.js';
 
 const STATES = {
   clear: { cloud: 0.2, storm: 0, sea: 0.85, wind: 0.8, rain: 0, fog: 0.00009 },
@@ -60,6 +61,29 @@ export class Weather {
 
   force(state) { this.state = state; this.timer = 60 * 8; }
 
+  // The wind a ship actually feels at (x, z): the trade wind, shifting a few degrees as the day goes on, with
+  // gusts and lulls rolling downwind across the sea, and knocked down and made fluky in the lee of high land.
+  windAt(x, z, terrain) {
+    const n = this.noise || (this.noise = new Simplex(1492));
+    const t = this.clock || 0, W = this.wind;
+    // gust patches ~250 m across drift downwind at a third of the wind's speed
+    const ox = W.x * t * WIND_SPEED * 0.33, oz = W.z * t * WIND_SPEED * 0.33;
+    const g = n.noise2((x - ox) * 0.004, (z - oz) * 0.004) * 0.7 + n.noise2((x - ox) * 0.011 + 40, (z - oz) * 0.011) * 0.3;
+    let speed = W.strength * (1 + g * (0.16 + 0.14 * this.cur.storm));
+    let ang = W.angle + n.noise2(x * 0.0012 + t * 0.004, z * 0.0012) * 0.09;
+    // lee of the land: high ground upwind blankets the wind and makes it fluky
+    if (terrain) {
+      let shadow = 0;
+      for (const d of [40, 110, 240, 450]) {
+        const h = terrain.quickHeight(x - W.x * d, z - W.z * d);
+        if (h > 2) shadow = Math.max(shadow, clamp((h - 2) / (d * 0.09 + 3), 0, 1));
+      }
+      speed *= 1 - 0.75 * shadow;
+      ang += shadow * n.noise2(x * 0.02 + t * 0.2, z * 0.02) * 0.6;
+    }
+    return { x: Math.cos(ang), z: Math.sin(ang), speed: Math.max(0, speed) * WIND_SPEED, strength: Math.max(0, speed) };
+  }
+
   update(dt, gameMinutesDt, camera, sky, ocean, audio) {
     this.timer -= gameMinutesDt;
     if (this.timer <= 0) {
@@ -71,7 +95,9 @@ export class Weather {
     const tgt = STATES[this.state];
     const k = 0.05;
     for (const key of Object.keys(tgt)) this.cur[key] = damp(this.cur[key], tgt[key], k, dt);
-    this.windAngle = damp(this.windAngle, this.windTarget, 0.02, dt);
+    this.clock = (this.clock || 0) + dt;
+    // the trade wind veers and backs a few degrees over the day
+    this.windAngle = damp(this.windAngle, this.windTarget + Math.sin(this.clock * 0.004) * 0.12, 0.02, dt);
     const gust = 1 + Math.sin(performance.now() * 0.00031) * 0.06 + Math.sin(performance.now() * 0.0011) * 0.04 * (1 + this.cur.storm);
     this.wind.x = Math.cos(this.windAngle);
     this.wind.z = Math.sin(this.windAngle);

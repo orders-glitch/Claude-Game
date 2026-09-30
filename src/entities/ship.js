@@ -4,6 +4,7 @@ import { buildShipModel } from './shipModel.js';
 import { Wake } from './effects.js';
 import { SHIP_CLASSES, NATIONS, AMMO } from '../game/data.js';
 import { clamp, lerp, damp, wrapAngle, rand, smoothstep } from '../core/noise.js';
+import { sailStep, WIND_SPEED } from './sailing.js';
 
 export const BALL_SPEED = 115;
 export const GRAVITY = 15;
@@ -79,6 +80,8 @@ export class Ship {
     this.effTheta = 0;
     this.eff = 1;
     this.windSide = 1;
+    this.sway = 0; this.yawRate = 0; this.heel = 0; this.heelTarget = 0; this.sailDraw = 0; this.luff = 0; this.backed = false; this.drive = 0;
+    this.aw = { beta: Math.PI, speed: 0, side: 1 };
     this.ai = null;
     this.updateAxes();
     this.wake = new Wake(this);
@@ -105,36 +108,29 @@ export class Ship {
     this.updateAxes();
     if (this.sinking) return this.updateSinking(dt, world);
 
-    // --- sails & wind
+    // --- sails & wind: real forces from the apparent wind (see sailing.js)
     const target = this.struck || this.anchored ? 0 : this.sailTarget / 2;
-    this.sailSet = damp(this.sailSet, target, 1.2, dt);
-    const dotW = clamp(this.forward.x * wind.x + this.forward.z * wind.z, -1, 1);
-    const theta = Math.acos(dotW);
-    this.effTheta = theta;
-    this.eff = sailEfficiency(theta, cls.upwind);
+    this.sailSet = damp(this.sailSet, target, 0.9, dt); // setting and handing sail takes the crew a while
+    const w = world.windAt ? world.windAt(this.position.x, this.position.z) : { x: wind.x, z: wind.z, speed: WIND_SPEED * wind.strength };
+    this.localWind = w;
+    // true wind angle for the instruments: 0 = running dead before it, PI = head to wind
+    this.effTheta = Math.acos(clamp(this.forward.x * w.x + this.forward.z * w.z, -1, 1));
     const sailHealth = Math.sqrt(clamp(this.sails / this.sailsMax, 0.05, 1));
     const crewF = clamp(this.crew / Math.max(1, cls.crewMin * 1.5), 0.3, 1);
     const hullF = 0.7 + 0.3 * clamp(this.hull / this.hullMax, 0, 1);
     const cargoLoad = this.cargoCount() / Math.max(1, cls.cargo);
-    const loadF = 1 - cargoLoad * 0.12;
-    let targetSpeed = cls.speed * this.sailSet * this.eff * wind.strength * sailHealth * crewF * hullF * loadF * (this.speedMult || 1);
-    if (this.aground > 0) targetSpeed *= 0.2;
-    const accel = targetSpeed > this.speed ? 0.22 : 0.35;
-    this.speed = damp(this.speed, targetSpeed, accel, dt);
-
-    // --- steering
+    this.sailPower = sailHealth * crewF * hullF * (this.speedMult || 1);
+    // a full hold and shot-through planking make her sit deeper and drag more
+    this.extraDrag = cargoLoad * 0.004 + (1 - hullF) * 0.02 + (this.aground > 0 ? 0.8 : 0) + (this.anchored ? 0.3 : 0);
     this.rudder = damp(this.rudder, this.rudderInput, 3, dt);
-    const steerF = 0.2 + 0.8 * clamp(this.speed / 9, 0, 1);
-    const turnRate = cls.turn * 0.36 * steerF * (this.anchored ? 0.3 : 1);
-    this.heading = wrapAngle(this.heading + this.rudder * turnRate * dt);
+    sailStep(this, dt, w);
+    // how well she's drawing, for the helm's instruments and the AI
+    this.eff = clamp(this.drive / 0.9, 0, 1) * (this.backed ? 0 : 1);
+    this.heading = wrapAngle(this.heading + this.yawRate * dt);
     this.updateAxes();
-
-    // leeway: slight sideways drift with the wind
-    const windSide = wind.x * this.right.x + wind.z * this.right.z;
-    this.windSide = windSide >= 0 ? 1 : -1;
-    const leeway = windSide * 0.9 * this.sailSet * wind.strength * (1 - cls.upwind * 0.5);
-    const vx = this.forward.x * this.speed + this.right.x * leeway;
-    const vz = this.forward.z * this.speed + this.right.z * leeway;
+    this.windSide = this.aw.side;
+    const vx = this.forward.x * this.speed + this.right.x * this.sway;
+    const vz = this.forward.z * this.speed + this.right.z * this.sway;
     this.position.x += vx * dt;
     this.position.z += vz * dt;
     this.velocity = this.velocity || new THREE.Vector3();
@@ -271,9 +267,10 @@ export class Ship {
     const damageSink = (1 - clamp(this.hull / this.hullMax, 0, 1)) * 0.8;
     this.y = damp(this.y, avg - damageSink, 6, dt);
     const pitch = Math.atan2(hb - hs, L * 2) * 0.85;
-    const windLocal = world.wind.x * r.x + world.wind.z * r.z;
-    const heel = -windLocal * this.sailSet * world.wind.strength * 0.09 * Math.sin(this.effTheta) * (this.cls.rig === 'sloop' ? 1.4 : 1);
-    const turnHeel = this.rudder * clamp(this.speed / 25, 0, 1) * 0.05;
+    // heel to leeward under the side force of the sails, and outward in a turn
+    this.heel = damp(this.heel, this.heelTarget, 1.2, dt);
+    const heel = -this.heel;
+    const turnHeel = (this.yawRate || 0) * clamp(this.speed / 25, 0, 1) * 0.3;
     const roll = Math.atan2(hst - hp, B * 2) * 0.8 + heel + turnHeel + (this.listAngle || 0);
     this.pitch = damp(this.pitch, pitch, 5, dt);
     this.roll = damp(this.roll, roll, 4, dt);
@@ -284,9 +281,12 @@ export class Ship {
   updateVisuals(dt, wind) {
     const u = this.model.sailUniforms;
     u.uFurl.value = clamp(this.sailSet, 0.04, 1);
-    u.uFill.value = clamp(this.eff * 1.1 - 0.05, 0, 1) * wind.strength;
-    // brace the yards: square sails swing toward the wind's direction
-    const localWindAngle = Math.atan2(wind.x * this.right.x + wind.z * this.right.z, wind.x * this.forward.x + wind.z * this.forward.z);
+    // canvas bellies with the pressure of the apparent wind, flogs when pinched, presses back when taken aback
+    u.uFill.value = damp(u.uFill.value, this.sailDraw, this.backed ? 3 : 2, dt);
+    if (u.uLuff) u.uLuff.value = damp(u.uLuff.value, clamp(this.luff + (this.sailSet > 0.1 && this.aw.speed < 8 ? 0.4 : 0), 0, 1), 3, dt);
+    // brace the yards to the apparent wind: square sails swing toward the wind's direction
+    const aw = this.aw;
+    const localWindAngle = (Math.PI - aw.beta) * aw.side; // 0 = apparent wind from astern
     // localWindAngle: 0 = wind from astern
     const brace = clamp(localWindAngle * 0.35, -0.55, 0.55);
     u.uBrace.value = damp(u.uBrace.value, -brace, 1.5, dt);
@@ -294,6 +294,17 @@ export class Ship {
     u.uBoom.value = damp(u.uBoom.value, -boom, 1.5, dt);
     u.uSide.value = damp(u.uSide.value, localWindAngle >= 0 ? 1 : -1, 2, dt);
     u.uDamage.value = 1 - clamp(this.sails / this.sailsMax, 0, 1);
+    // trim the scanned rigs: sheets and braces follow the apparent wind (same trim as the physics)
+    if (u.uTrimFA) {
+      const b = aw.beta;
+      const lee = aw.side;
+      const fa = clamp(b - 0.3, 0.14, 1.45), sq = this.backed ? 0.72 : clamp(b - 0.38, 0.72, 1.57);
+      // sails that are handed or slack drift back toward the centreline / square
+      const set = clamp(this.sailSet * 1.5, 0, 1);
+      u.uTrimFA.value = damp(u.uTrimFA.value, lerp(0.05, fa, set), 1.2, dt);
+      u.uTrimSq.value = damp(u.uTrimSq.value, lerp(1.4, sq, set), 0.8, dt);
+      u.uLee.value = damp(u.uLee.value, lee, 1.5, dt);
+    }
   }
 
   localToWorld(v) {
