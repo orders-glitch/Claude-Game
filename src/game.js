@@ -44,6 +44,7 @@ import { loadTerrainTextures } from './world/terrainMaterial.js';
 import { TerrainDetail } from './world/terrain.js';
 import { ISLANDS, PORTS, NATIONS, SHIP_CLASSES, SHIP_NAMES, GOODS, SALVAGE_CAMP, MONTHS, at } from './game/data.js';
 import { GameState } from './game/state.js';
+import { Wreckage } from './entities/wreckage.js';
 import { Missions } from './game/missions.js';
 import { UI } from './ui/ui.js';
 
@@ -201,6 +202,7 @@ export class Game {
     await step(0.85, 'Casting cannon…');
     this.effects = new Effects(scene, this.ocean);
     this.projectiles = new Projectiles(scene);
+    this.wreckage = new Wreckage(scene, this.ocean, this.effects, this.audio);
     this.ui.buildWorldMap();
 
     // post-processing
@@ -316,6 +318,9 @@ export class Game {
   startSession(fromSave) {
     this.clearWorld();
     this.mate = null;
+    this.wreckage?.clear();
+    this.broadCam = null;
+    this.volley = null;
     this.ui.hideTitle();
     this.audio.init();
     const s = this.state;
@@ -364,7 +369,7 @@ export class Game {
     const cls = s.ship.cls;
     const ship = new Ship(this, cls, 'pirate', {
       isPlayer: true, name: s.shipName, x, z, heading, flag: s.flag || 'pirate',
-      strength: 1 + 0.25 * s.upgrades.hull, hull: s.ship.hull, sails: s.ship.sails, crew: s.ship.crew,
+      strength: 1 + 0.25 * s.upgrades.hull, hull: s.ship.hull, sails: s.ship.sails, crew: s.ship.crew, cargo: s.ship.cargo,
       gunDamage: 1 + 0.35 * s.upgrades.guns, gunRange: 1 + 0.07 * s.upgrades.guns, sailTint: '#e6dcc4', crewFigures: this.crowd?.ready ? 0 : 6,
     });
     ship.id = PLAYER_ID;
@@ -373,6 +378,11 @@ export class Game {
     ship.sailTarget = 0;
     ship.sailSet = 0;
     this.scene.add(ship.group);
+    // her stern lantern throws a little light on the quarterdeck at night
+    ship.lanternLight = new THREE.PointLight(0xffb866, 0, 26, 1.6);
+    ship.lanternLight.position.set(0, ship.model.deckY + 2.8, (ship.model.hullZ?.[1] ?? ship.cls.length * 0.45) - 1);
+    ship.group.add(ship.lanternLight);
+    ship.lanternsLit = this.state.lanterns !== false;
     this.effects.addWake(ship.wake);
     this.ships.push(ship);
     this.playerShip = ship;
@@ -470,7 +480,7 @@ export class Game {
   // ======================================================================== modes
   enterSail() {
     this.mode = 'sail';
-    this.ui.hint('[W]/[S] make / shorten sail · [A]/[D] helm · look off the beam, [Left Click] fire · hold [Right Click] gunnery view (mouse sets range) · [Q]/[E] fire larboard / starboard · [1][2][3] shot · [R] anchor · [F] dock / board · [M] chart', true);
+    this.ui.hint('[W]/[S] make / shorten sail · [A]/[D] helm · look off the beam, [Left Click] fire · hold [Right Click] gunnery view (mouse sets range) · [Q]/[E] fire larboard / starboard · [1][2][3] shot · [R] anchor · [L] lanterns · [J] jettison · [F] dock / board · [M] chart', true);
     const p = this.playerShip;
     p.anchored = false;
     this.camYaw = p.heading + 0.35;
@@ -637,6 +647,12 @@ export class Game {
     this.sky.update(dt, s.hours, this.camera, this.focus);
     this.ocean.update(dt, this.camera, this.sky, this.weather.fog);
     const night = this.sky.nightFactor;
+    // ships' lanterns: lit from dusk, unless a captain has doused them to pass unseen
+    for (const sh of this.ships) {
+      const on = night > 0.3 && sh.lanternsLit && !sh.sinking;
+      if (sh.lanternsOn !== on) { sh.lanternsOn = on; sh.model.setLanterns?.(on); }
+      if (sh.lanternLight) sh.lanternLight.intensity = on ? 9 * night : 0;
+    }
     sharedMaterials().windowLit.emissiveIntensity = night * 2.2;
     shipMaterials().window.emissiveIntensity = night * 2.5;
     for (const t of this.townList) if (t.group && t.center.distanceTo(this.camera.position) < 2500) t.update(dt, shipTime.value, night);
@@ -672,6 +688,7 @@ export class Game {
     this.updateForts(dt);
     this.updatePickups(dt);
     this.effects.update(dt, this.sky, this.weather.fog);
+    this.wreckage.update(dt);
     this.vegetation.update(dt, this.camera.position, this.wind.strength * (1 + this.sky.storm));
     props.update(this.camera.position);
     this.harbour.update(dt, shipTime.value, this.ocean, this.camera.position, this.wind);
@@ -773,6 +790,12 @@ export class Game {
       if (p.anchored) p.sailTarget = 0;
       this.ui.toast(p.anchored ? 'Let go the anchor!' : 'Weigh anchor!', 'info', 1500);
     }
+    if (inp.hit('KeyL')) {
+      p.lanternsLit = !p.lanternsLit;
+      this.state.lanterns = p.lanternsLit;
+      this.ui.toast(p.lanternsLit ? 'Light the lanterns.' : 'Douse the lanterns! Not a light showing, lads — we\'ll slip by in the dark.', 'info', 2500);
+    }
+    if (inp.hit('KeyJ')) this.jettison(p);
     if (inp.hit('KeyG')) {
       const kind = p.flagKind === 'pirate' ? 'britain' : 'pirate';
       p.setVisibleFlag(kind);
@@ -791,7 +814,24 @@ export class Game {
     const lookingAbeam = Math.abs(Math.sin(this.camYaw - p.heading)) > 0.5;
     if (this.camIdle > 6 && !spy && !(lookingAbeam && this.combatT > 0)) this.camYaw = dampAngle(this.camYaw, p.heading, 0.4, dt);
     let camPos;
-    if (spy) {
+    // the broadside camera: when your guns tell, a moment's look at the damage from low over the water
+    if (this.broadCam && (this.broadCam.t > this.broadCam.dur || spy || inp.mouseHit(0) || inp.hit('KeyQ') || inp.hit('KeyE') || !this.broadCam.ship.group.parent)) this.broadCam = null;
+    if (this.broadCam) {
+      const BC = this.broadCam, T = BC.ship.position, L = BC.ship.cls.length;
+      BC.t += dt;
+      if (!BC.from) {
+        const u = p.position.clone().sub(T).setY(0).normalize();
+        BC.side = new THREE.Vector3(-u.z, 0, u.x);
+        BC.from = T.clone().addScaledVector(u, L * 0.95).addScaledVector(BC.side, L * 0.55);
+      }
+      const k = BC.t / BC.dur;
+      const cam = BC.from.clone().addScaledVector(BC.side, -k * L * 0.45);
+      cam.y = Math.max(BC.ship.model.deckY + 2.5 + k * 3, this.ocean.heightAt(cam.x, cam.z) + 1.5);
+      this.camera.position.copy(cam);
+      this.camera.lookAt(T.x, BC.ship.model.deckY + 2.5, T.z);
+      this.camera.fov = damp(this.camera.fov, 48, 5, dt);
+      camPos = cam;
+    } else if (spy) {
       // Gunnery view: the camera rises over the ship and looks down across the engaged broadside, steady (no
       // pitch or roll of the ship), framing the whole arc of the shot and where it will fall. Mouse up / down
       // sets the range (the guns' elevation), left / right trains them fore and aft.
@@ -854,6 +894,7 @@ export class Game {
       const yaw = sd === side ? aimYaw : 0;
       if (p.fireBroadside(sd, el, this, yaw)) {
         this.missions.onEvent({ type: 'fired' });
+        this.volley = { t: performance.now() / 1000, hits: 0, raked: false, shown: false };
         this.shakeT = this.gunnery ? 0.15 : 0.4;
         this.combatT = 20;
       } else if (p.reload[sd] > 0) this.ui.toast(`${sd === 'port' ? 'Larboard' : 'Starboard'} guns reloading…`, 'warn', 900);
@@ -1086,8 +1127,18 @@ export class Game {
   }
 
   // ======================================================================== combat hooks
-  onShipHit(ship, attacker, zone) {
+  onShipHit(ship, attacker, zone, ball) {
     if (!attacker) return;
+    // your broadside telling: a cry for a raking shot, and a look at it when three or more balls strike home
+    const V = this.volley;
+    if (attacker.isPlayer && V && performance.now() / 1000 - V.t < 5) {
+      V.hits++;
+      if (ball?.raked && !V.raked) { V.raked = true; this.ui.toast(`Raked her fore and aft! The ${ship.name} takes it the length of her decks.`, 'good', 2600); }
+      if (V.hits >= 3 && !V.shown && !this.gunnery && this.state.settings.broadsideCam !== false && ship.position.distanceTo(attacker.position) < 700) {
+        V.shown = true;
+        this.broadCam = { ship, t: 0, dur: 2.4 };
+      }
+    }
     if (ship.isPlayer) {
       this.shakeT = 0.3;
       this.ui.damageFlash();
@@ -1105,6 +1156,48 @@ export class Game {
       if (ship.role === 'pirate') ship.aggro.add(PLAYER_ID);
       if (ship.role !== 'merchant') ship.aggro.add(PLAYER_ID);
     }
+  }
+
+  // Lightening ship: over the side goes the cheapest cargo first, a quarter of the hold at a time
+  jettison(p) {
+    const cargo = this.state.ship.cargo;
+    const keys = Object.keys(cargo).filter((k) => cargo[k] > 0).sort((a, b) => (GOODS[a]?.base || 0) - (GOODS[b]?.base || 0));
+    if (!keys.length) { this.ui.toast('The hold is empty, Captain — nothing to throw over.', 'warn', 2000); return; }
+    let n = Math.max(1, Math.ceil(this.state.cargoCount() * 0.25));
+    const gone = [];
+    for (const k of keys) {
+      if (n <= 0) break;
+      const q = Math.min(n, cargo[k]);
+      cargo[k] -= q; n -= q;
+      if (cargo[k] <= 0) delete cargo[k];
+      gone.push(`${q} ${GOODS[k]?.unit || 'lot'}${q > 1 ? 's' : ''} of ${(GOODS[k]?.name || k).toLowerCase()}`);
+    }
+    for (let i = 0; i < 4; i++) {
+      const x = p.position.x + p.right.x * (i % 2 ? 1 : -1) * p.cls.beam * 0.7 + p.forward.x * rand(-6, 6), z = p.position.z + p.right.z * (i % 2 ? 1 : -1) * p.cls.beam * 0.7 + p.forward.z * rand(-6, 6);
+      setTimeout(() => this.effects.splash(x, z, 0.6), i * 250);
+    }
+    this.ui.toast(`Over the side: ${gone.join(', ')}. She rides lighter.`, 'warn', 3500);
+  }
+
+  onGearCarried(ship) {
+    if (ship.isPlayer) this.ui.toast('“There goes the canvas! Split from head to foot — I told you she was overpressed, Captain!” — Mr. Ward, first mate', 'mate', 4500);
+  }
+
+  // a topmast shot away: it comes down over the side
+  onMastLost(ship, mast, fromV) {
+    this.wreckage.topmast(ship, mast, fromV, ship.fire > 5);
+    const ms = ship.model.masts || [];
+    const names = ms.length >= 3 ? ['fore', 'main', 'mizzen'] : ms.length === 2 ? ['fore', 'main'] : ['main'];
+    const sorted = [...ms].sort((a, b) => a.lz - b.lz); // the bow is toward -z
+    const name = names[Math.min(names.length - 1, sorted.indexOf(mast))];
+    if (ship.isPlayer) this.ui.toast(`“The ${name} topmast's gone by the board, Captain! Axes, lads — cut the wreckage clear!” — Mr. Ward, first mate`, 'mate', 5000);
+    else if (this.playerShip && ship.position.distanceTo(this.playerShip.position) < 900) this.ui.toast(`Her ${name} topmast comes down! The ${ship.name} loses way.`, 'good', 3000);
+  }
+
+  onShipFlees(ship, how) {
+    const p = this.playerShip;
+    if (how === 'windward' && p && ship.ai?.target === p && ship.position.distanceTo(p.position) < 900)
+      this.ui.toast(`“She's clawing off to windward, Captain — the ${ship.name} points higher than we can!” — Mr. Ward, first mate`, 'mate', 4500);
   }
 
   onShipStruck(ship) {

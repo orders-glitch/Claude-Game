@@ -279,6 +279,64 @@ function sailShader(mat, uniforms) {
   mat.customProgramCacheKey = () => 'scannedSail2';
 }
 
+// A shot-away topmast: every fragment of the ship above the cut, within that mast's fore-and-aft span, is
+// discarded (mast, yards, sails, rigging alike). uCut[i] = (z0, z1, y, on) in the model's own coordinates.
+function cutShader(mat, uniforms) {
+  const key = mat.customProgramCacheKey();
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, r) => {
+    prev.call(mat, shader, r);
+    shader.uniforms.uCut = uniforms.uCut;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vCutP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCutP = position;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vCutP;\nuniform vec4 uCut[3];')
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        for (int i = 0; i < 3; i++) { vec4 c = uCut[i]; if (c.w > 0.5 && vCutP.z > c.x && vCutP.z < c.y && vCutP.y > c.z) discard; }`);
+  };
+  mat.customProgramCacheKey = () => key + '|cut';
+}
+
+// The masts, found from the sails they carry: square sails hang from yards on a mast (sails at the same station
+// fore and aft belong to one mast); a big fore-and-aft sail whose luff lies inside the hull is a gaff sail on its
+// mast (jibs, whose luffs run out to the bowsprit, are not). Each mast knows where its topmast would part.
+function findMasts(parts, box, hz, bowZ) {
+  const L = box.max.z - box.min.z, tol = L * 0.08; // (raked masts carry their upper sails a little aft)
+  const all = [];
+  for (const p of parts) if (p.sail) for (const b of p.comps) all.push(b);
+  const area = (b) => Math.max(b[1] - b[0], b[5] - b[4]) * (b[3] - b[2]);
+  const big = Math.max(1e-6, ...all.map(area));
+  const inHull = (z) => z > hz[0] + (hz[1] - hz[0]) * 0.06 && z < hz[1] - (hz[1] - hz[0]) * 0.06;
+  const masts = [];
+  for (const b of all) {
+    const fa = b[1] - b[0] < (b[5] - b[4]) * 0.45;
+    const z = fa ? (bowZ > 0 ? b[5] : b[4]) : (b[4] + b[5]) / 2;
+    // (not scraps of rigging, the spritsail under the bowsprit, jibs or staysails)
+    if (area(b) < big * (fa ? 0.3 : 0.04) || !inHull(z)) continue;
+    let m = masts.find((q) => Math.abs(q.z - z) < tol);
+    if (!m) masts.push((m = { z, sq: [], fa: [], z0: Infinity, z1: -Infinity, y1: -Infinity, area: 0 }));
+    (fa ? m.fa : m.sq).push(b);
+    m.z0 = Math.min(m.z0, b[4]); m.z1 = Math.max(m.z1, b[5]); m.y1 = Math.max(m.y1, b[3]);
+    m.area += area(b);
+  }
+  // the three that carry the most canvas are the masts
+  masts.sort((a, b) => b.area - a.area).splice(3);
+  masts.sort((a, b) => a.z - b.z);
+  const total = masts.reduce((t, m) => t + m.area, 0) || 1;
+  return masts.map((m, i) => {
+    // square-rigged: the topmast parts just above the course's yard; a gaff mast: halfway up its sail
+    const sq = m.sq.sort((a, b) => a[2] - b[2]);
+    const lowest = Math.min(...m.fa.map((b) => b[2]), ...sq.map((b) => b[2]));
+    const cutY = sq.length > 1 ? sq[0][3] + L * 0.012 : lowest + (m.y1 - lowest) * 0.55;
+    // its span fore and aft, never reaching past halfway to the next mast
+    let z0 = Math.min(m.z0, m.z) - tol * 0.6, z1 = Math.max(m.z1, m.z) + tol * 0.6;
+    if (i > 0) z0 = Math.max(z0, (masts[i - 1].z + m.z) / 2);
+    if (i < masts.length - 1) z1 = Math.min(z1, (masts[i + 1].z + m.z) / 2);
+    return { z: m.z, z0, z1, cutY, topY: Math.max(m.y1, box.max.y * 0.97), share: m.area / total };
+  });
+}
+
 class ShipLibrary {
   constructor() { this.models = {}; }
 
@@ -314,7 +372,7 @@ class ShipLibrary {
           const pa = p.geometry.attributes.position;
           for (let i = 0; i < pa.count; i += 3) { const y = pa.getY(i), x = Math.abs(pa.getX(i)); if (y > cfg.deck - 0.3 && y < cfg.deck + 1.2 && x > hullHalf * 0.6) { const z = pa.getZ(i); hz0 = Math.min(hz0, z); hz1 = Math.max(hz1, z); } }
         }
-        this.models[name] = { parts, box, cfg, hullHalf, hullZ: [hz0, hz1] };
+        this.models[name] = { parts, box, cfg, hullHalf, hullZ: [hz0, hz1], masts: findMasts(parts, box, [hz0, hz1], cfg.bow < 0 ? 1 : -1) };
       } catch (e) { /* optional: procedural ships are used instead */ }
     }));
     return this;
@@ -332,19 +390,23 @@ class ShipLibrary {
     if (M.cfg.bow < 0) inner.rotation.y = Math.PI;
     group.add(inner);
     const uniforms = { uFurl: { value: 1 }, uFill: { value: 0 }, uLuff: { value: 0 }, uDamage: { value: 0 }, uBrace: { value: 0 }, uBoom: { value: 0 }, uSide: { value: 1 }, uCanvas: { value: new THREE.Color(canvas) },
-      uLee: { value: 1 }, uBowZ: { value: M.cfg.bow < 0 ? 1 : -1 }, uTrimFA: { value: 0.1 }, uTrimSq: { value: 1.57 } };
+      uCut: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, uLee: { value: 1 }, uBowZ: { value: M.cfg.bow < 0 ? 1 : -1 }, uTrimFA: { value: 0.1 }, uTrimSq: { value: 1.57 } };
     let sails = null;
     for (const p of M.parts) {
-      let material = p.material;
-      if (p.sail) { material = p.material.clone(); sailShader(material, uniforms); }
-      else if (p.swing) { material = p.material.clone(); sparShader(material, uniforms); }
+      // each ship gets its own materials: its own trim, and its own topmasts shot away
+      const material = p.material.clone();
+      if (p.sail) sailShader(material, uniforms);
+      else if (p.swing) sparShader(material, uniforms);
+      cutShader(material, uniforms);
       const mesh = new THREE.Mesh(p.geometry, material);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       inner.add(mesh);
       if (p.sail) sails = mesh;
     }
-    return { group, sails, uniforms, scale: s, box: M.box.clone().applyMatrix4(new THREE.Matrix4().makeScale(s, s, s)), cfg: M.cfg, hullHalf: M.hullHalf * s, hullZ: M.hullZ.map((z) => z * s * (M.cfg.bow < 0 ? -1 : 1)).sort((a, b) => a - b) };
+    return { group, sails, uniforms, scale: s, box: M.box.clone().applyMatrix4(new THREE.Matrix4().makeScale(s, s, s)), cfg: M.cfg, hullHalf: M.hullHalf * s, hullZ: M.hullZ.map((z) => z * s * (M.cfg.bow < 0 ? -1 : 1)).sort((a, b) => a - b),
+      // the masts in the ship's own frame (raw kept for the cut)
+      masts: M.masts.map((m) => ({ ...m, lz: m.z * s * (M.cfg.bow < 0 ? -1 : 1), lCutY: m.cutY * s, lTopY: m.topY * s })) };
   }
 }
 

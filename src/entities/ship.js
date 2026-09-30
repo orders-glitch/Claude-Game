@@ -72,6 +72,12 @@ export class Ship {
     this.sunk = false;
     this.sinkT = 0;
     this.fire = 0;
+    this.fireT = 0;
+    this.strain = 0; // gear overpressed in a squall
+    this.shipping = 0; // green seas coming aboard a deep-laden hull
+    this.lanternsLit = true;
+    this.mastsDown = new Set();
+    this.mastLoss = 0; // share of her canvas lost with shot-away topmasts
     this.anchored = !!opts.anchored;
     this.aground = 0;
     this.lastHitBy = null;
@@ -119,12 +125,26 @@ export class Ship {
     const crewF = clamp(this.crew / Math.max(1, cls.crewMin * 1.5), 0.3, 1);
     const hullF = 0.7 + 0.3 * clamp(this.hull / this.hullMax, 0, 1);
     const cargoLoad = this.cargoCount() / Math.max(1, cls.cargo);
-    this.sailPower = sailHealth * crewF * hullF * (this.speedMult || 1);
+    this.sailPower = sailHealth * crewF * hullF * (1 - this.mastLoss) * (this.speedMult || 1);
     // a full hold and shot-through planking make her sit deeper and drag more
     this.extraDrag = cargoLoad * 0.004 + (1 - hullF) * 0.02 + (this.aground > 0 ? 0.8 : 0) + (this.anchored ? 0.3 : 0);
     this.rudder = damp(this.rudder, this.rudderInput, 3, dt);
     sailStep(this, dt, w);
     if (this.lashed) { this.speed = 0; this.sway = 0; this.yawRate = 0; this.heelTarget = 0; } // grappled alongside another ship
+    // Carrying a press of sail into a squall: the canvas splits and the topmasts go (a reefed ship rides it out)
+    const press = this.sailSet * w.strength * w.strength;
+    if (press > 3 && !this.anchored && !this.lashed && !this.sinking) this.strain += dt * (press - 3) * 0.5;
+    else this.strain = Math.max(0, this.strain - dt * 0.6);
+    if (this.strain > 8) {
+      this.strain = 3;
+      this.sails = Math.max(0, this.sails - this.sailsMax * 0.15);
+      if (Math.random() < 0.6) this.loseMast(rand(-cls.length * 0.3, cls.length * 0.3), world, new THREE.Vector3(w.x * 40, 0, w.z * 40));
+      world.onGearCarried?.(this);
+    }
+    // heavy seas over a deep-laden hull: she ships green water faster than the pumps clear it
+    const sea = world.ocean?.seaState ?? 1;
+    this.shipping = sea > 1.5 && cargoLoad > 0.75 && !this.lashed ? (sea - 1.5) * (cargoLoad - 0.6) : 0;
+    if (this.shipping > 0) { this.hull -= dt * this.shipping * 5; if (this.hull <= 0) { this.hull = 0; this.startSinking(world); } }
     // how well she's drawing, for the helm's instruments and the AI
     this.eff = clamp(this.drive / 0.9, 0, 1) * (this.backed ? 0 : 1);
     this.heading = wrapAngle(this.heading + this.yawRate * dt);
@@ -146,12 +166,38 @@ export class Ship {
     this.reload.port = Math.max(0, this.reload.port - dt);
     this.reload.starboard = Math.max(0, this.reload.starboard - dt);
 
-    // --- fire aboard
+    // --- fire aboard: it spreads unless enough hands fight it, burns the planking, then climbs into the rigging
     if (this.fire > 0) {
-      this.fire -= dt * (0.4 + clamp(this.crew / cls.crewMax, 0, 1));
-      this.hull -= dt * 1.6;
-      const p = this.localToWorld(new THREE.Vector3(rand(-1, 1), this.model.deckY + 1, rand(-this.cls.length * 0.3, this.cls.length * 0.3)));
-      world.effects.burn(p, 1.2);
+      const hands = clamp(this.crew / cls.crewMax, 0, 1);
+      this.fire = Math.min(12, this.fire + dt * (0.45 - 1.1 * hands));
+      this.fireT += dt;
+      this.hull -= dt * (0.6 + this.fire * 0.15);
+      const n = this.fire > 6 ? 2 : 1;
+      for (let i = 0; i < n; i++) {
+        const p = this.localToWorld(new THREE.Vector3(rand(-1, 1), this.model.deckY + 1, rand(-this.cls.length * 0.3, this.cls.length * 0.3)));
+        world.effects.burn(p, 0.8 + this.fire * 0.08);
+      }
+      if (this.fire > 5) {
+        // the canvas catches: flames run up a mast and the sails burn away
+        this.sails = Math.max(0, this.sails - dt * this.fire * 0.22);
+        const ms = this.model.masts;
+        if (ms?.length && Math.random() < dt * 4) {
+          const m = ms[Math.floor(Math.random() * ms.length)];
+          if (!this.mastsDown.has(m)) world.effects.burn(this.localToWorld(new THREE.Vector3(rand(-1.5, 1.5), rand(this.model.deckY + 3, m.lCutY), m.lz)), 1 + this.fire * 0.06);
+        }
+        // and it reaches a ship lying alongside
+        for (const o of world.ships) {
+          if (o === this || !o.alive || o.fire > 0 || o.sinking) continue;
+          if (o.position.distanceTo(this.position) < (o.cls.beam + this.cls.beam) * 0.9 + 2 && Math.random() < dt * 0.08) o.fire = 2.5;
+        }
+        // a long fire finds the magazine
+        if (!this.isPlayer && this.fireT > 30 && Math.random() < dt * 0.02) {
+          world.effects.explosion(this.group.position.clone().setY(3));
+          world.audio?.explosion(this.position);
+          this.hull = 0;
+        }
+      }
+      if (this.fire <= 0) { this.fire = 0; this.fireT = 0; }
       if (this.hull <= 0) this.startSinking(world);
     } else if (this.hull < this.hullMax * 0.35 && Math.random() < dt * 3) {
       const p = this.localToWorld(new THREE.Vector3(rand(-2, 2), this.model.deckY, rand(-this.cls.length * 0.35, this.cls.length * 0.35)));
@@ -287,7 +333,7 @@ export class Ship {
     u.uFurl.value = clamp(this.sailSet, 0.04, 1);
     // canvas bellies with the pressure of the apparent wind, flogs when pinched, presses back when taken aback
     u.uFill.value = damp(u.uFill.value, this.sailDraw, this.backed ? 3 : 2, dt);
-    if (u.uLuff) u.uLuff.value = damp(u.uLuff.value, clamp(this.luff + (this.sailSet > 0.1 && this.aw.speed < 8 ? 0.4 : 0), 0, 1), 3, dt);
+    if (u.uLuff) u.uLuff.value = damp(u.uLuff.value, clamp(this.luff + (this.sailSet > 0.1 && this.aw.speed < 8 ? 0.4 : 0) + (1 - clamp(this.sails / this.sailsMax, 0, 1)) * 0.45 * this.sailSet, 0, 1), 3, dt);
     // brace the yards to the apparent wind: square sails swing toward the wind's direction
     const aw = this.aw;
     const localWindAngle = (Math.PI - aw.beta) * aw.side; // 0 = apparent wind from astern
@@ -398,10 +444,15 @@ export class Ship {
   onBallHit(zone, ammoId, ball, world) {
     const a = AMMO[ammoId];
     const dm = ball.damage;
+    // raking fire: a shot travelling fore and aft down her length finds every gun crew and bulkhead in its path
+    const sp = Math.hypot(ball.v.x, ball.v.z) || 1;
+    const along = (ball.v.x * this.forward.x + ball.v.z * this.forward.z) / sp;
+    const rake = Math.abs(along) > 0.8 ? (along > 0 ? 2.2 : 1.8) : 1; // through the stern windows is worst
+    ball.raked = rake > 1;
     if (zone === 'hull') {
-      const crewLoss = Math.random() < 0.6 ? Math.ceil(rand(0, 2.2) * a.crew * dm) : 0;
-      this.damage(7 * a.hull * dm, 1 * a.sails, crewLoss, world, ball.owner);
-      if (ammoId === 'round' && Math.random() < 0.03) this.fire = Math.max(this.fire, 8);
+      const crewLoss = Math.random() < 0.6 * Math.min(1.5, rake) ? Math.ceil(rand(0, 2.2) * a.crew * dm * rake) : 0;
+      this.damage(7 * a.hull * dm * (rake > 1 ? 1.5 : 1), 1 * a.sails, crewLoss, world, ball.owner);
+      if (ammoId === 'round' && Math.random() < 0.03 * rake) this.fire = Math.max(this.fire, 3);
       if (this.hull > 0 && this.hull < this.hullMax * 0.2 && Math.random() < 0.012 && !this.isPlayer) {
         // magazine detonation
         world.effects.explosion(this.group.position.clone().setY(3));
@@ -412,7 +463,38 @@ export class Ship {
     } else if (zone === 'rig') {
       const crewLoss = Math.random() < 0.3 ? Math.ceil(rand(0, 1.5) * a.crew * dm) : 0;
       this.damage(0, 5 * a.sails * dm, crewLoss, world, ball.owner);
+      // with the canvas in rags and the rigging cut, a spar gives way
+      const frac = this.sails / this.sailsMax;
+      if (this.alive && frac < 0.6 && Math.random() < (ammoId === 'chain' ? 0.2 : 0.07) * dm * (1.4 - frac)) {
+        const lp = this.worldToLocal(ball.p.clone());
+        this.loseMast(lp.z, world, ball.v);
+      }
     }
+  }
+
+  // A topmast shot away: it and everything it carries comes down over the side, and her speed goes with it
+  loseMast(nearZ, world, fromV) {
+    const ms = this.model.masts;
+    if (!ms?.length) return false;
+    let best = null, bd = Infinity;
+    for (const m of ms) {
+      if (this.mastsDown.has(m)) continue;
+      const d = Math.abs(m.lz - nearZ);
+      if (d < bd) { bd = d; best = m; }
+    }
+    if (!best) return false;
+    this.mastsDown.add(best);
+    const i = ms.indexOf(best);
+    if (this.model.uCut && i < 3) this.model.uCut.value[i].set(best.z0, best.z1, best.cutY, 1);
+    this.mastLoss = Math.min(0.75, this.mastLoss + best.share * 0.85);
+    this.sails = Math.min(this.sails, this.sailsMax * (1 - this.mastLoss));
+    // the masthead pennant goes with the mast it flies from
+    if (this.model.masthead && this.model.scanned) {
+      const near = ms.reduce((a, m) => (Math.abs(m.lz - this.model.masthead.position.z) < Math.abs(a.lz - this.model.masthead.position.z) ? m : a));
+      if (near === best) this.model.masthead.visible = false;
+    }
+    world.onMastLost?.(this, best, fromV);
+    return true;
   }
 
   strike(world) {

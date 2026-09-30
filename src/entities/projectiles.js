@@ -56,7 +56,7 @@ export class Projectiles {
             ship.onBallHit(zone, b.ammo, b, world);
             if (zone === 'hull') { world.effects.hit(b.p, b.ammo === 'grape' ? 0.3 : 1); world.audio?.impact(b.p, 'wood'); }
             else { world.effects.hit(b.p, 0.3); world.audio?.impact(b.p, 'sail'); }
-            world.onShipHit?.(ship, b.owner, zone);
+            world.onShipHit?.(ship, b.owner, zone, b);
             dead = true;
             break;
           }

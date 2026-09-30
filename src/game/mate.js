@@ -87,6 +87,17 @@ export class FirstMate {
     if (hull < 0.5 && !this.saidHull) { if (this.say('hull', 'She\'s taking water fast, Captain — the pumps can\'t hold it for ever!', 60)) this.saidHull = true; }
     if (hull > 0.7) this.saidHull = false;
     if (p.fire > 0) this.say('fire', 'Fire on deck! Buckets, lads, buckets!', 20);
+    // weather: a squall bearing down, the ship overpressed, green seas coming aboard
+    const W = g.weather;
+    for (const c of W.squalls || []) {
+      const d = Math.hypot(c.x - p.position.x, c.z - p.position.z);
+      if (d < c.r + 700 && d > c.r + 60 && c.fade > 0.3 && this.say('squall', `Squall coming down on us, ${relBearing(p, c.x, c.z)}! Best shorten sail before it strikes, Captain.`, 90)) break;
+    }
+    if (p.strain > 1.2) this.say('strain', 'She\'s overpressed, Captain! Shorten sail [S] or we\'ll lose the topmasts!', 12);
+    if (p.shipping > 0) this.say('swamp', 'She\'s shipping green seas over the waist — too deep laden for this weather! Lighten her [J], Captain!', 30);
+    // night: lanterns showing where hostile eyes may see them
+    if (g.sky.nightFactor > 0.5 && p.lanternsLit && g.ships.some((s) => s !== p && s.alive && s.position.distanceTo(p.position) < 1200 && (s.role === 'navy' || s.role === 'hunter')))
+      this.say('lanterns', 'Man-of-war about, Captain, and our lanterns lit like a tavern. Douse them [L] and she\'ll never see us.', 120);
     // in irons
     if (p.sailSet > 0.4 && p.effTheta > 2.45 && Math.abs(p.speed) < 1.2) this.say('irons', 'She\'s in irons, Captain! Put the helm hard over and hold it till she pays off.', 30);
   }

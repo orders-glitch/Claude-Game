@@ -47,7 +47,7 @@ export class ShipAI {
     for (const o of world.ships) {
       if (o === s || !o.alive || o.struck) continue;
       const d = o.position.distanceTo(s.position);
-      if (d > 900) continue;
+      if (d > this.sightRange(world, o) * (o === this.target ? 1.4 : 1)) continue;
       if (!world.isHostile(s, o)) continue;
       if (d < bestD) { bestD = d; best = o; }
     }
@@ -73,6 +73,14 @@ export class ShipAI {
     this.lastPos.copy(s.position);
     if (moved < 0.8 && s.sailTarget > 0) this.stuck += 1; else this.stuck = Math.max(0, this.stuck - 1);
     if (this.stuck > 12) { this.tackSide *= -1; this.stuck = 0; this.forceTurn = 6; }
+  }
+
+  // how far off her lookouts make out another ship: less at night (far less if she shows no lights), in rain
+  // and in the murk of a squall
+  sightRange(world, o) {
+    const night = world.sky?.nightFactor || 0;
+    const rain = Math.max(world.weather?.cur?.rain || 0, world.weather?.squallAt ? world.weather.squallAt(o.position.x, o.position.z) : 0);
+    return 900 * (1 - night * (o.lanternsLit === false ? 0.72 : 0.3)) * (1 - rain * 0.45);
   }
 
   steer(dt, world) {
@@ -102,13 +110,13 @@ export class ShipAI {
       const d = s.position.distanceTo(tp);
       s.sailTarget = d > 120 ? 2 : d > 40 ? 1 : 1;
     } else if (this.mode === 'attack' && this.target) {
-      desired = this.combatHeading();
+      desired = this.combatHeading(dt);
     } else if (this.mode === 'flee' && this.target) {
-      const t = this.target;
-      desired = headingTo(s.position.x - t.position.x, s.position.z - t.position.z);
-      // prefer a broad reach while fleeing
-      desired = wrapAngle(desired + Math.sin(performance.now() * 0.0002 + s.id) * 0.3);
+      desired = this.fleeHeading(world);
     }
+
+    // a prudent master takes in sail before a squall or in a blow
+    if ((s.localWind?.strength || 1) > 1.45) s.sailTarget = Math.min(s.sailTarget, 1);
 
     // don't point into the eye of the wind: tack
     desired = this.avoidIrons(desired, world, dt);
@@ -188,13 +196,33 @@ export class ShipAI {
     return bestH;
   }
 
-  combatHeading() {
+  combatHeading(dt = 0.016) {
     const s = this.ship, t = this.target;
     const dx = t.position.x - s.position.x, dz = t.position.z - s.position.z;
     const d = Math.hypot(dx, dz);
     const toT = headingTo(dx, dz);
     const ideal = 70 + s.cls.length * 3;
-    if (d > ideal * 2.8) return toT; // close the distance
+    if (d > ideal * 2.8) { this.rake = null; return toT; } // close the distance
+    // Raking: from astern or ahead of her, cross her stern (or her bow) where her guns can't bear and ours
+    // fire the length of her decks. Commit to the run once begun; break off if she turns her broadside on us.
+    const rx = s.position.x - t.position.x, rz = s.position.z - t.position.z;
+    const along = (rx * t.forward.x + rz * t.forward.z) / Math.max(1, d); // +1 dead ahead of her, -1 dead astern
+    const nimble = s.cls.length <= t.cls.length * 1.1 || s.speed > t.speed + 1;
+    if (!this.rake && this.aggressive && nimble && Math.abs(along) > 0.72 && d < ideal * 2) this.rake = { end: along > 0 ? 1 : -1, t: 0 };
+    if (this.rake) {
+      const R = this.rake;
+      R.t += dt;
+      const L = t.cls.length * 0.5;
+      // a point just clear of her stern (or bow), and our course across it, square to hers
+      const off = L + 22;
+      const px = t.position.x + t.forward.x * off * R.end, pz = t.position.z + t.forward.z * off * R.end;
+      const cross = Math.sign((s.position.x - px) * t.right.x + (s.position.z - pz) * t.right.z) || 1;
+      const dp = Math.hypot(px - s.position.x, pz - s.position.z);
+      const alongNow = (rx * t.forward.x + rz * t.forward.z) / Math.max(1, d);
+      if (Math.abs(alongNow) < 0.35 || d > ideal * 2.4 || R.t > 25) this.rake = null; // she's turned to face us, or it's over
+      else if (dp > 40) return headingTo(px - s.position.x + t.right.x * cross * -25, pz - s.position.z + t.right.z * cross * -25);
+      else return wrapAngle(t.heading + (Math.PI / 2) * cross); // across her stern, guns bearing down her length
+    }
     // present the broadside: keep target abeam, choose side it's already on
     const side = Math.sign(dx * s.right.x + dz * s.right.z) || 1;
     // heading such that target is at +-90deg
@@ -203,6 +231,27 @@ export class ShipAI {
     const adj = clamp((d - ideal) / ideal, -0.6, 0.6);
     h = wrapAngle(h - side * adj * 0.8);
     return h;
+  }
+
+  // Running away: a ship that points higher than her pursuer claws off to windward, where the chaser can't
+  // follow as close; otherwise she runs with the wind on her quarter, her best point of sailing.
+  fleeHeading(world) {
+    const s = this.ship, t = this.target;
+    const away = headingTo(s.position.x - t.position.x, s.position.z - t.position.z);
+    const w = world.wind;
+    const windFrom = headingTo(-w.x, -w.z);
+    const us = calibrate(s.cls), them = calibrate(t.cls);
+    if (us.tack < them.tack - 0.06 && Math.abs(wrapAngle(away - windFrom)) < Math.PI * 0.6) {
+      if (!this.clawing) world.onShipFlees?.(s, 'windward');
+      this.clawing = true;
+      return windFrom; // avoidIrons works her up to windward in long boards
+    }
+    this.clawing = false;
+    // wind on the quarter, on whichever side takes her further from the chaser
+    const a = wrapAngle(windFrom + Math.PI + 0.7), b = wrapAngle(windFrom + Math.PI - 0.7);
+    const score = (h) => Math.cos(wrapAngle(h - away));
+    const quarter = score(a) > score(b) ? a : b;
+    return score(quarter) > 0.2 ? wrapAngle(away + wrapAngle(quarter - away) * 0.5) : away;
   }
 
   tryFire(world) {

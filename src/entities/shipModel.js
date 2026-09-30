@@ -24,6 +24,41 @@ function materials() {
   };
   return MATS;
 }
+// Stern lanterns for the scanned ships: horn-paned lanterns on the taffrail, lit at night (a halo carries far
+// over dark water), doused to slip by unseen.
+let HALO = null;
+function haloTexture() {
+  if (HALO) return HALO;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,220,150,1)'); g.addColorStop(0.25, 'rgba(255,190,110,0.45)'); g.addColorStop(1, 'rgba(255,170,90,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  HALO = new THREE.CanvasTexture(c); HALO.colorSpace = THREE.SRGBColorSpace;
+  return HALO;
+}
+function sternLanterns(group, deckY, sternZ, beam, count) {
+  const M = materials();
+  const out = new THREE.Group();
+  const frame = new THREE.MeshStandardMaterial({ color: '#1c1a17', roughness: 0.6, metalness: 0.5 });
+  const halo = new THREE.SpriteMaterial({ map: haloTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+  const cores = [], halos = [];
+  for (let i = 0; i < count; i++) {
+    const x = count === 1 ? 0 : (i / (count - 1) - 0.5) * beam * 0.55;
+    const y = deckY + 2.6 + (count === 3 && i === 1 ? 0.5 : 0);
+    const cage = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.7, 6), frame);
+    cage.position.set(x, y + 0.02, sternZ);
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 0.5, 6), M.glow);
+    core.position.set(x, y, sternZ);
+    const h = new THREE.Sprite(halo);
+    h.scale.setScalar(2.4);
+    h.position.set(x, y, sternZ);
+    out.add(cage, core, h);
+    cores.push(core); halos.push(h);
+  }
+  group.add(out);
+  return (on) => { for (const c of cores) c.visible = on; for (const h of halos) h.visible = on; };
+}
+
 // A detailed ship model (see shipLibrary.js) wearing the game's flags, guns positions and sail controls
 function buildScannedShip(cls, nation, opts) {
   const S = shipLibrary.create(cls.id, cls.length, opts.sailTint || (nation.id === 'pirate' ? '#d6c9a8' : '#ece4cf'));
@@ -46,9 +81,14 @@ function buildScannedShip(cls, nation, opts) {
   masthead.rotation.y = Math.PI / 2;
   masthead.position.set(0, S.box.max.y + 0.6, (S.box.min.z + S.box.max.z) * 0.08);
   group.add(masthead);
+  const sternZ = (S.hullZ ? S.hullZ[1] : S.box.max.z) + 0.2;
+  const setLanterns = sternLanterns(group, deckY, sternZ, Math.min(beam, (S.hullHalf || beam / 2) * 2), cls.length > 32 ? 3 : cls.length > 25 ? 2 : 1);
+  setLanterns(false);
   return {
+    setLanterns,
     group, sails: S.sails, sailUniforms: S.uniforms, gunPositions, lanterns: [], mastTops: [masthead.position.clone()], bsTip: new THREE.Vector3(0, deckY, S.box.min.z),
     ensign, masthead, draft, deckY, sheer: () => deckY, length: L, beam, scanned: true, deckHalf: Math.min(beam / 2, S.hullHalf || beam / 2) * 0.85, deckLen: S.hullZ ? S.hullZ[1] - S.hullZ[0] : L * 0.7, deckMid: S.hullZ ? (S.hullZ[0] + S.hullZ[1]) / 2 : 0,
+    masts: S.masts, uCut: S.uniforms.uCut,
     setFlag(kind) { ensign.material = flagMaterial(kind); masthead.material = flagMaterial(kind); },
   };
 }
@@ -504,6 +544,7 @@ export function buildShipModel(cls, nation, opts = {}) {
 
   return {
     group, sails, sailUniforms: sailMat.userData.uniforms, gunPositions, lanterns, mastTops, bsTip,
+    masts: mastTops.map((t) => ({ lz: t.z, lCutY: t.y * 0.55, lTopY: t.y, share: 1 / mastTops.length })),
     ensign, masthead, draft: h.draft, deckY: free, sheer, length: L, beam,
     setFlag(kind) { ensign.material = flagMaterial(kind); masthead.material = flagMaterial(kind); },
   };
