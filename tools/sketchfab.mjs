@@ -1,5 +1,5 @@
 // Sketchfab helper (needs your own API token in SKETCHFAB_TOKEN; never commit it).
-//   node tools/sketchfab.mjs search "flintlock pistol" [count]
+//   node tools/sketchfab.mjs search "flintlock pistol" [count] [--relevance] [--animated]
 //   node tools/sketchfab.mjs fetch <uid> <out.glb> [--tris N] [--tex 1024] [--height m]
 // fetch downloads the model's GLB, simplifies it to a triangle budget, re-encodes textures as WebP and
 // writes a compact GLB. Credits (author, licence, URL) are appended to CREDITS.md next to the output.
@@ -22,7 +22,9 @@ const opt = (name, def) => { const i = args.indexOf('--' + name); return i >= 0 
 if (cmd === 'search') {
   const q = encodeURIComponent(args[0]);
   const count = args[1] || 24;
-  const r = api(`https://api.sketchfab.com/v3/search?type=models&q=${q}&downloadable=true&sort_by=-likeCount&count=${count}`);
+  const sort = args.includes('--relevance') ? '' : '&sort_by=-likeCount';
+  const anim = args.includes('--animated') ? '&animated=true' : '';
+  const r = api(`https://api.sketchfab.com/v3/search?type=models&q=${q}&downloadable=true${sort}${anim}&count=${count}`);
   for (const m of r.results) console.log(`${m.uid}  ${String(m.faceCount).padStart(8)}f  ${m.license?.label?.padEnd(28) || ''}  ${m.name}  — ${m.user?.displayName}`);
 } else if (cmd === 'fetch') {
   const [uid, out] = args;

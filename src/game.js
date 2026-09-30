@@ -18,6 +18,7 @@ import { Weather } from './world/weather.js';
 import { Vegetation } from './world/vegetation.js';
 import { Grass } from './world/grass.js';
 import { Harbour } from './world/harbour.js';
+import { animals } from './world/animals.js';
 import { Wildlife } from './world/wildlife.js';
 import { Town, buildSalvageCamp } from './world/town.js';
 import { loadTownTextures } from './world/builder.js';
@@ -123,7 +124,7 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(this.state.settings.fov, window.innerWidth / window.innerHeight, 0.3, 24000);
 
     await step(0.1, 'Stowing the cargo…');
-    await Promise.all([props.load(), weapons.load(), shipLibrary.load(), loadTownTextures(), loadTerrainTextures(), flora.load([...TREE_TYPES, ...PALM_TYPES, 'pachira_aquatica_01', 'calathea_orbifolia_01', 'anthurium_botany_01'])]);
+    await Promise.all([props.load(), weapons.load(), shipLibrary.load(), animals.load(), loadTownTextures(), loadTerrainTextures(), flora.load([...TREE_TYPES, ...PALM_TYPES, 'pachira_aquatica_01', 'calathea_orbifolia_01', 'anthurium_botany_01'])]);
     flora.bakeImpostors(renderer);
     this.flora = flora;
     this.weapons = weapons;
@@ -157,6 +158,8 @@ export class Game {
     await step(0.65, 'Filling the oceans…');
     this.ocean = new Ocean(scene, this.terrain, q);
     this.harbour = new Harbour(scene, this.townList, this.terrain);
+    animals.init(scene, this);
+    this.animals = animals;
     this.shipBlockers.push(...this.harbour.blockers);
     this.sky = new SkySystem(scene, renderer, q);
     this.weather = new Weather(scene);
@@ -608,6 +611,7 @@ export class Game {
     this.vegetation.update(dt, this.camera.position, this.wind.strength * (1 + this.sky.storm));
     props.update(this.camera.position);
     this.harbour.update(dt, shipTime.value, this.ocean, this.camera.position, this.wind);
+    animals.update(dt, this.camera.position, this.walker && this.mode === 'foot' ? this.walker.pos : this.camera.position, this.ocean, this.terrain);
     flora.update(this.camera.position, this.sky);
     if (this.camera.position.y - this.terrain.height(this.camera.position.x, this.camera.position.z) < 60) this.grass.update(this.camera.position);
     this.terrainDetail.update(this.camera.position);
@@ -632,6 +636,16 @@ export class Game {
 
   render() {
     this.renderer.info.reset();
+    // a single NaN in the camera (a zero-length vector somewhere) turns the whole frame black: never
+    // render from an invalid camera, fall back to the last good one
+    const c = this.camera, p = c.position, q = c.quaternion;
+    if (!(isFinite(p.x) && isFinite(p.y) && isFinite(p.z) && isFinite(q.x) && isFinite(q.y) && isFinite(q.z) && isFinite(q.w))) {
+      if (this._goodCam) { p.copy(this._goodCam.p); q.copy(this._goodCam.q); c.updateMatrixWorld(); }
+      if (!this._camWarned) { this._camWarned = true; console.warn('Invalid camera transform recovered'); }
+    } else {
+      if (!this._goodCam) this._goodCam = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
+      this._goodCam.p.copy(p); this._goodCam.q.copy(q);
+    }
     this.composer.render();
   }
 
