@@ -201,3 +201,11 @@ table.trade button { font-size: 14px; padding: 2px 9px; margin-left: 3px; }
 .breath i { display: block; height: 100%; background: linear-gradient(90deg, #8fd0e0, #d8f4ff); transition: width 0.2s; }
 .breath span { position: absolute; top: -20px; left: 0; right: 0; text-align: center; font: italic 13px Georgia, serif; color: #e8ddc0; }
 .breath.low i { background: #e05a3a; }
+
+/* the squadron in company */
+#fleet-panel { position: fixed; right: 18px; bottom: 244px; width: 250px; background: rgba(12,10,8,0.55); border: 1px solid rgba(200,170,110,0.35); padding: 6px 10px 8px; font: 13px Georgia, serif; color: #e8dcc0; display: none; z-index: 4; pointer-events: none; }
+#fleet-panel .fp-title { font-variant: small-caps; letter-spacing: 0.08em; color: #d8b56a; margin-bottom: 3px; }
+#fleet-panel .fp-row { display: grid; grid-template-columns: 1fr 70px 70px; gap: 6px; align-items: center; margin: 2px 0; }
+#fleet-panel .fp-row i { display: block; height: 6px; }
+#fleet-panel .fp-row small { color: #bfb090; font-style: italic; text-align: right; }
+#fleet-panel .fp-keys { margin-top: 4px; font-size: 11px; color: #a89c80; }

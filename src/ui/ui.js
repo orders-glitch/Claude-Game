@@ -4,6 +4,7 @@ import { WORLD_HALF } from '../world/terrain.js';
 import { flagTexture, parchmentCanvas } from '../core/textures.js';
 import { clamp } from '../core/noise.js';
 import { saveSettings } from '../game/state.js';
+import { makeCaptain } from '../game/fleet.js';
 
 const $ = (id) => document.getElementById(id);
 const SKULL = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="26" r="17" fill="#f2ead8"/><rect x="22" y="34" width="20" height="12" rx="3" fill="#f2ead8"/><circle cx="25" cy="25" r="5" fill="#140c08"/><circle cx="39" cy="25" r="5" fill="#140c08"/><path d="M32 30 l-3 6 h6z" fill="#140c08"/><path d="M8 50 L56 62 M56 50 L8 62" stroke="#f2ead8" stroke-width="5" stroke-linecap="round"/></svg>')}`;
@@ -480,7 +481,7 @@ export class UI {
       ctx.save();
       ctx.translate(dx, dz);
       ctx.rotate(-s.heading);
-      const col = s.struck ? '#cfcfcf' : g.isHostile(s, g.playerShip) ? '#e5412d' : s.mission ? '#f3d58a' : '#f2ead8';
+      const col = s.role === 'consort' ? '#6fc3ff' : s.struck ? '#cfcfcf' : g.isHostile(s, g.playerShip) ? '#e5412d' : s.mission ? '#f3d58a' : '#f2ead8';
       ctx.fillStyle = col;
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 1;
@@ -762,15 +763,32 @@ export class UI {
     g.fastTravel(p.id);
   }
 
+  // the squadron in company: name, captain, hull, and what she's about
+  fleetPanel(F) {
+    this._fpT = (this._fpT || 0) - 1;
+    if (this._fpT > 0) return;
+    this._fpT = 10;
+    let el = this._fp;
+    if (!el) { el = this._fp = document.createElement('div'); el.id = 'fleet-panel'; document.body.appendChild(el); }
+    const g = this.game;
+    if (!F.list.length || g.mode !== 'sail') { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.innerHTML = '<div class="fp-title">Squadron</div>' + F.list.map((e) => {
+      const c = SHIP_CLASSES[e.cls], hp = Math.round(100 * e.hull / c.hull);
+      const what = { follow: 'on station', engage: 'engaging', hold: 'hove to' }[e.order] || '';
+      return `<div class="fp-row"><span>${e.name}</span><i style="width:${hp}%;background:${hp < 30 ? '#c8452e' : '#c9a04a'}"></i><small>${what}</small></div>`;
+    }).join('') + '<div class="fp-keys">[Z] engage · [X] form on me · [V] heave to</div>';
+  }
+
   // ---------------------------------------------------------------- shops
   openShop(type, town) {
     this.shop = { type, town, tab: null };
     const titles = { tavern: 'The Tavern', merchant: 'Merchant', shipwright: 'Shipwright', governor: town.port.nation === 'pirate' ? 'Council of Captains' : 'Governor\'s House' };
     $('shop-title').textContent = `${titles[type]} · ${town.port.name}`;
     const tabs = {
-      tavern: ['Crew', 'Contracts', 'Rumours', 'Rest'],
+      tavern: ['Crew', 'Captains', 'Contracts', 'Rumours', 'Rest'],
       merchant: ['Trade'],
-      shipwright: ['Repairs', 'Refit', 'Ships'],
+      shipwright: ['Repairs', 'Refit', 'Ships', 'Squadron'],
       governor: ['Audience'],
     }[type];
     this.shop.tab = tabs[0];
@@ -825,14 +843,25 @@ export class UI {
           const cost = costs[lv];
           html += `<div class="shop-card"><div class="info"><b>${names[lv]}${cost ? ' → ' + names[lv + 1] : ''}</b><div>${desc}</div></div><div class="price">${cost ? cost + ' ⛁' : 'Finest'}</div><button data-upgrade="${k}" ${!cost || s.gold < cost ? 'disabled' : ''}>Refit</button></div>`;
         }
-      } else {
+      } else if (tab === 'Ships') {
         const trade = Math.floor(cls.price * 0.5 * clamp(s.ship.hull / g.playerHullMax(), 0.3, 1));
         html += `<p class="note">Your ${cls.name} is worth ${trade} ⛁ in part exchange. Guns, cargo and crew transfer to the new ship.</p>`;
         for (const id of town.port.shipyard) {
           const c = SHIP_CLASSES[id];
           const cost = Math.max(0, c.price - trade);
           const cur = id === s.ship.cls;
-          html += `<div class="shop-card"><div class="info"><b>${c.name}</b><div>${c.desc} ${c.guns} guns · hull ${c.hull} · hold ${c.cargo} · crew ${c.crewMax}</div></div><div class="price">${cur ? 'Yours' : cost + ' ⛁'}</div><button data-buyship="${id}" ${cur || s.gold < cost ? 'disabled' : ''}>Buy</button></div>`;
+          const fcost = c.price + Math.ceil(c.crewMin * 1.6) * 15;
+          const canFleet = g.fleet.room() > 0 && g.fleet.pool.length > 0 && s.gold >= fcost;
+          html += `<div class="shop-card"><div class="info"><b>${c.name}</b><div>${c.desc} ${c.guns} guns · hull ${c.hull} · hold ${c.cargo} · crew ${c.crewMax}</div></div><div class="price">${cur ? 'Yours' : cost + ' ⛁'}</div><button data-buyship="${id}" ${cur || s.gold < cost ? 'disabled' : ''}>Buy</button><button data-buyfleet="${id}" title="Crewed and sailed for you by a captain you have hired" ${canFleet ? '' : 'disabled'}>For the squadron (${fcost})</button></div>`;
+        }
+        if (!g.fleet.pool.length) html += '<p class="note">To buy a ship for your squadron, first sign a captain to command her (at the tavern).</p>';
+      } else if (tab === 'Squadron') {
+        const F = g.fleet;
+        if (!F.list.length) html += '<p class="note">No ships sail in company with you. Take prizes into your squadron, or buy a ship for one of your captains.</p>';
+        for (const e of F.list) {
+          const c = SHIP_CLASSES[e.cls];
+          const cost = F.repairCost(e), worth = F.sellValue(e);
+          html += `<div class="shop-card"><div class="info"><b>${e.name}</b> <small>(${c.name})</small><div>Captain ${e.captain.name} · hull ${Math.round(100 * e.hull / c.hull)}% · sails ${Math.round(100 * e.sails / c.sails)}% · ${e.crew} men</div></div><button data-frepair="${e.id}" ${cost <= 0 || s.gold < cost ? 'disabled' : ''}>Repair (${cost})</button><button data-fsell="${e.id}">Sell (${worth})</button></div>`;
         }
       }
     } else if (type === 'tavern') {
@@ -845,6 +874,21 @@ export class UI {
           <button data-hire="5" ${room < 5 || s.gold < wage * 5 ? 'disabled' : ''}>+5 (${wage * 5})</button>
           <button data-hire="${room}" ${room < 1 || s.gold < wage * room ? 'disabled' : ''}>Fill (${wage * room})</button></div>`;
         html += `<div class="shop-card"><div class="info"><b>Stand the house a round</b><div>Rum for every soul in the tavern. Your name will be sung — and remembered.</div></div><div class="price">60 ⛁</div><button data-round ${s.gold < 60 ? 'disabled' : ''}>Buy</button></div>`;
+      } else if (tab === 'Captains') {
+        const F = g.fleet;
+        html += `<p>Your squadron: <b>${F.list.length}</b> of ${F.capacity()} ships in company (more as your renown grows). A consort needs a captain to sail her.</p>`;
+        if (F.pool.length) html += `<p class="note">Awaiting a command: ${F.pool.map((c) => `Captain ${c.name} (seamanship ${Math.round(c.sea * 10)}, gunnery ${Math.round(c.guns * 10)})`).join(' · ')}</p>`;
+        // who's drinking here today (the same faces all day)
+        let seed = (s.day * 7919 + portId.length * 104729) % 2147483647 || 1;
+        const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+        for (let i = 0; i < 3; i++) {
+          const c = makeCaptain(rnd, rnd());
+          const fee = Math.round(150 + (c.sea + c.guns) * 450);
+          const hired = F.pool.some((p) => p.name === c.name) || F.list.some((e) => e.captain.name === c.name);
+          const bios = ['Sailed with Hornigold out of Nassau.', 'Lost his own sloop on the Colorados reefs.', 'A Jamaica privateer, out of work since the Peace.', 'Took a Spanish piragua off Trinidad with eleven men.', 'Once sailing master of a Bristol slaver.', 'Knows every cay of the Bahamas.'];
+          const bio = bios[Math.floor(rnd() * bios.length)];
+          html += `<div class="shop-card"><div class="info"><b>Captain ${c.name}</b><div>${bio} Seamanship ${Math.round(c.sea * 10)} · gunnery ${Math.round(c.guns * 10)}.</div></div><div class="price">${fee} ⛁</div><button data-hirecap="${encodeURIComponent(JSON.stringify({ ...c, fee }))}" ${hired || s.gold < fee || F.pool.length >= 4 ? 'disabled' : ''}>${hired ? 'Signed' : 'Sign articles'}</button></div>`;
+        }
       } else if (tab === 'Contracts' || tab === 'Rumours') {
         const offers = g.missions.generateContracts(portId);
         const list = tab === 'Contracts' ? offers.filter((o) => o.type !== 'map') : offers.filter((o) => o.type === 'map');
@@ -939,6 +983,32 @@ export class UI {
       g.rebuildPlayerShip();
       g.audio.ui('fanfare');
       this.toast(`The ${c.name} ${s.shipName} is yours!`, 'good');
+    } else if (d.hirecap) {
+      const c = JSON.parse(decodeURIComponent(d.hirecap));
+      s.gold -= c.fee; delete c.fee;
+      g.fleet.pool.push(c);
+      g.audio.coins();
+      this.toast(`Captain ${c.name} signs your articles and awaits a ship.`, 'good');
+    } else if (d.buyfleet) {
+      const c = SHIP_CLASSES[d.buyfleet];
+      const captain = g.fleet.pool.shift();
+      s.gold -= c.price + Math.ceil(c.crewMin * 1.6) * 15;
+      const names = ['Delivery', 'Good Intent', 'Lark', 'Fortune', 'Adventure', 'Speedwell', 'Happy Return', 'Sea Nymph', 'Dragon', 'Rover'];
+      const e = g.fleet.addEntry(d.buyfleet, names.find((n) => !g.fleet.list.some((x) => x.name === n)) || 'Consort', captain, c.hull, c.sails, Math.ceil(c.crewMin * 1.6));
+      g.fleet.spawnAll();
+      g.audio.ui('fanfare');
+      this.toast(`The ${e.name} (${c.name}) joins your squadron under Captain ${captain.name}. She lies in the roads.`, 'good', 5000);
+    } else if (d.frepair) {
+      const e = g.fleet.list.find((x) => x.id === d.frepair);
+      s.gold -= g.fleet.repairCost(e); g.fleet.repair(e);
+      g.audio.ui('click');
+    } else if (d.fsell) {
+      const e = g.fleet.list.find((x) => x.id === d.fsell);
+      s.gold += g.fleet.sellValue(e);
+      g.fleet.pool.push(e.captain);
+      g.fleet.release(e);
+      g.audio.coins();
+      this.toast(`The ${e.name} is sold; Captain ${e.captain.name} waits for another command.`, 'info');
     } else if (d.hire) {
       const wage = town.port.nation === 'pirate' ? 12 : 22;
       const n = Math.min(+d.hire, cls.crewMax - s.ship.crew, Math.floor(s.gold / wage));

@@ -48,6 +48,8 @@ export class Projectiles {
         // ships
         for (const ship of ships) {
           if (ship === b.owner || !ship.alive) continue;
+          // (no friendly fire within your squadron: the shot passes over a consort's deck)
+          if ((ship.isPlayer || ship.role === 'consort') && b.owner && (b.owner.isPlayer || b.owner.role === 'consort')) continue;
           const dx = ship.position.x - b.p.x, dz = ship.position.z - b.p.z;
           const r = ship.cls.length * 0.6 + 2;
           if (dx * dx + dz * dz > r * r) continue;

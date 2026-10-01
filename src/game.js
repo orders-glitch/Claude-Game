@@ -47,6 +47,7 @@ import { GameState } from './game/state.js';
 import { Wreckage } from './entities/wreckage.js';
 import { Stealth } from './game/stealth.js';
 import { Seaside } from './game/seaside.js';
+import { Fleet } from './game/fleet.js';
 import { Missions } from './game/missions.js';
 import { UI } from './ui/ui.js';
 
@@ -172,6 +173,7 @@ export class Game {
     this.harbour.addBoats(scene, this.townList, this.terrain);
     animals.init(scene, this);
     this.animals = animals;
+    this.fleet = new Fleet(this);
     this.shipBlockers.push(...this.harbour.blockers);
     // your ship lies in the roads off each port, clear of the piers, the shoals and the ships at anchor
     for (const t of this.townList) t.berth = this.roadsBerth(t);
@@ -350,6 +352,8 @@ export class Game {
       this.playerShip.sailSet = 0;
       this.enterFoot(port.spawnPoint.clone(), port);
     }
+    this.fleet.ships.clear();
+    this.fleet.spawnAll();
     this.spawnTreasureMarkers();
     this.missions.resume();
     // restore bounty ships
@@ -463,6 +467,11 @@ export class Game {
     if (!a || !b || a === b) return false;
     if (!a.alive || !b.alive) return false;
     if (a.struck || b.struck) return false;
+    // your squadron: consorts and the flagship are one side; a consort's enemies are yours
+    const ours = (x) => x.isPlayer || x.role === 'consort';
+    if (ours(a) && ours(b)) return false;
+    if (a.role === 'consort') return a.aggro.has(b.id) || b.aggro.has(a.id) || b.aggro.has(PLAYER_ID) || this.isHostile(b, this.playerShip);
+    if (b.role === 'consort') return a.aggro.has(b.id) || this.isHostile(a, this.playerShip);
     if (a.aggro.has(b.id)) return true;
     if (b.isPlayer) {
       const w = this.state.wanted(a.nationId);
@@ -481,6 +490,7 @@ export class Game {
   }
 
   relationLabel(s) {
+    if (s.role === 'consort') return `your squadron · Capt. ${s.consort?.captain?.name || '?'} · ${{ follow: 'on station', engage: 'engaging', hold: 'hove to' }[s.consort?.order] || ''}`;
     if (s.struck) return 'surrendered';
     if (this.isHostile(s, this.playerShip)) return s.role === 'merchant' ? 'fleeing' : 'hostile';
     return { merchant: 'merchantman', navy: 'navy patrol', hunter: 'pirate hunter', pirate: 'Brethren' }[s.role] || 'neutral';
@@ -489,7 +499,7 @@ export class Game {
   // ======================================================================== modes
   enterSail() {
     this.mode = 'sail';
-    this.ui.hint('[W]/[S] make / shorten sail · [A]/[D] helm · look off the beam, [Left Click] fire · hold [Right Click] gunnery view (mouse sets range) · [Q]/[E] fire larboard / starboard · [1][2][3] shot · [R] anchor · [H] repair · [L] lanterns · [J] jettison · [F] dock / board · [M] chart', true);
+    this.ui.hint('[W]/[S] make / shorten sail · [A]/[D] helm · look off the beam, [Left Click] fire · hold [Right Click] gunnery view (mouse sets range) · [Q]/[E] fire larboard / starboard · [1][2][3] shot · [R] anchor · [H] repair · [Z]/[X]/[V] squadron: engage / form on me / heave to · [L] lanterns · [J] jettison · [F] dock / board · [M] chart', true);
     const p = this.playerShip;
     p.anchored = false;
     this.camYaw = p.heading + 0.35;
@@ -689,6 +699,8 @@ export class Game {
     else if (this.mode === 'foot') this.updateFoot(dt);
     else if (this.mode === 'title') this.updateTitle(dt);
     if (this.mode !== 'title') {
+      this.fleet.update(dt);
+      this.ui.fleetPanel?.(this.fleet);
       if (!this.seaside) this.seaside = new Seaside(this);
       this.seaside.placeWrecks();
       this.seaside.update(dt);
@@ -821,6 +833,10 @@ export class Game {
     }
     if (inp.hit('KeyJ')) this.jettison(p);
     if (inp.hit('KeyH')) this.toggleRepair(p);
+    // signals to the squadron
+    if (inp.hit('KeyZ')) this.fleet.order('engage');
+    if (inp.hit('KeyX')) this.fleet.order('follow');
+    if (inp.hit('KeyV')) this.fleet.order('hold');
     this.updateRepair(p, dt);
     if (inp.hit('KeyG')) {
       const kind = p.flagKind === 'pirate' ? 'britain' : 'pirate';
@@ -1165,7 +1181,8 @@ export class Game {
       this.combatT = 20;
       return;
     }
-    if (attacker.isPlayer) {
+    if (attacker.role === 'consort' && ship.role !== 'consort') { ship.aggro.add(attacker.id); ship.aggro.add(PLAYER_ID); }
+    if (attacker.isPlayer || attacker.role === 'consort') {
       this.combatT = 20;
       if (!this.hitShips.has(ship.id) && ship.nationId !== 'pirate') {
         this.hitShips.add(ship.id);
@@ -1394,6 +1411,7 @@ export class Game {
     const text = `The ${ship.name} is yours! ${losses ? losses + ' of your men fell. ' : ''}You seize ${gold} pieces of eight${taken.length ? ' and ' + taken.join(', ') : ''}.${recruits > 0 ? ` ${recruits} of her crew sign your articles.` : ''}`;
     this.ui.choice('Prize Taken', text, [
       canTake ? { label: `Take her as flagship (${ship.cls.name})`, act: () => { after(); this.takeCommand(ship); } } : null,
+      this.fleet.room() > 0 && p.crew > p.cls.crewMin + 6 ? { label: `Take her into your squadron (${this.fleet.list.length + 1} of ${this.fleet.capacity()})`, act: () => { after(); this.fleet.takePrize(ship); } } : null,
       { label: 'Set her adrift', act: () => { after(); ship.ai.mode = 'flee'; ship.ai.target = p; ship.sailTarget = 1; ship.struck = true; ship.despawnT = 60; } },
       { label: 'Scuttle her', act: () => { after(); ship.lastHitBy = p; ship.startSinking(this); } },
     ].filter(Boolean));
@@ -2118,6 +2136,7 @@ export class Game {
       p.updateAxes();
       this.state.advanceHours(hours);
       for (const s of [...this.ships]) if (!s.isPlayer && !s.mission) this.removeShip(s);
+      this.fleet.regroup();
       this.camYaw = p.heading + 0.4;
       this.fillTraffic(true);
       this.ui.toast(`After ${Math.max(1, Math.round(hours))} hours under sail you raise ${town.port.name}.`, 'info', 5000);

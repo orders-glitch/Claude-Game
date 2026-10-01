@@ -42,6 +42,15 @@ export class ShipAI {
 
   decide(world) {
     const s = this.ship;
+    // a ship of your squadron: her captain follows your signals (see fleet.js)
+    if (s.role === 'consort' && world.fleet) {
+      world.fleet.decide(this, world);
+      const moved = this.lastPos.distanceTo(s.position);
+      this.lastPos.copy(s.position);
+      if (moved < 0.8 && s.sailTarget > 0) this.stuck += 1; else this.stuck = Math.max(0, this.stuck - 1);
+      if (this.stuck > 12) { this.tackSide *= -1; this.stuck = 0; this.forceTurn = 6; }
+      return;
+    }
     // threat & target selection
     let best = null, bestD = Infinity;
     for (const o of world.ships) {
@@ -102,13 +111,23 @@ export class ShipAI {
       }
       desired = headingTo(this.wp.x - s.position.x, this.wp.z - s.position.z);
       s.sailTarget = 1;
+    } else if (this.mode === 'hold') {
+      // hove to (or at anchor while the commodore is ashore)
+      s.sailTarget = 0;
+      desired = s.heading;
     } else if (this.mode === 'escort' && this.leader) {
       const L = this.leader;
-      const off = L.right.clone().multiplyScalar(this.escortSide * 70).add(L.forward.clone().multiplyScalar(-60));
+      const off = L.right.clone().multiplyScalar(this.escortSide * (this.escortOut ?? 70)).add(L.forward.clone().multiplyScalar(-(this.escortBack ?? 60)));
       const tp = L.position.clone().add(off);
       desired = headingTo(tp.x - s.position.x, tp.z - s.position.z);
       const d = s.position.distanceTo(tp);
       s.sailTarget = d > 120 ? 2 : d > 40 ? 1 : 1;
+      // on station: keep the leader's pace and heading; when she lies still, so do we
+      if (d < 50) {
+        desired = wrapAngle(L.heading + wrapAngle(desired - L.heading) * 0.3);
+        if (Math.abs(L.speed) < 1.5) s.sailTarget = 0;
+        else s.sailTarget = s.speed > L.speed + 1.5 ? 1 : 2;
+      }
     } else if (this.mode === 'attack' && this.target) {
       desired = this.combatHeading(dt);
     } else if (this.mode === 'flee' && this.target) {
@@ -201,7 +220,7 @@ export class ShipAI {
     const dx = t.position.x - s.position.x, dz = t.position.z - s.position.z;
     const d = Math.hypot(dx, dz);
     const toT = headingTo(dx, dz);
-    const ideal = 70 + s.cls.length * 3;
+    const ideal = this.idealRange ?? 70 + s.cls.length * 3;
     if (d > ideal * 2.8) { this.rake = null; return toT; } // close the distance
     // Raking: from astern or ahead of her, cross her stern (or her bow) where her guns can't bear and ours
     // fire the length of her decks. Commit to the run once begun; break off if she turns her broadside on us.
@@ -261,11 +280,11 @@ export class ShipAI {
     const px = t.position.x + (t.velocity?.x || 0) * lead, pz = t.position.z + (t.velocity?.z || 0) * lead;
     const dx = px - s.position.x, dz = pz - s.position.z;
     const d = Math.hypot(dx, dz);
-    const maxRange = 380;
+    const maxRange = this.maxRange ?? 380;
     if (d > maxRange || d < 15) return;
     const localX = (dx * s.right.x + dz * s.right.z) / d;
     const localZ = (dx * s.forward.x + dz * s.forward.z) / d;
-    if (Math.abs(localX) < 0.9) return; // not abeam
+    if (Math.abs(localX) < (this.fireArc ?? 0.9)) return; // not abeam
     const side = localX > 0 ? 'starboard' : 'port';
     if (s.reload[side] > 0) return;
     // ammo choice: chain to cripple a fleeing ship, grape when close for boarding

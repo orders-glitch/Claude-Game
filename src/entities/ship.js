@@ -436,7 +436,7 @@ export class Ship {
     if (this.hull <= 0) {
       this.hull = 0;
       this.startSinking(world);
-    } else if (this.crew <= 0 && !this.isPlayer) {
+    } else if (this.crew <= 0 && !this.isPlayer && this.role !== 'consort') {
       this.strike(world);
     }
   }
