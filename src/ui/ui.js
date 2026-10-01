@@ -5,6 +5,7 @@ import { flagTexture, parchmentCanvas } from '../core/textures.js';
 import { clamp } from '../core/noise.js';
 import { saveSettings } from '../game/state.js';
 import { makeCaptain } from '../game/fleet.js';
+import { TIERS, EXTRAS, refitCost, emptyRefit } from '../game/refits.js';
 
 const $ = (id) => document.getElementById(id);
 const SKULL = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="26" r="17" fill="#f2ead8"/><rect x="22" y="34" width="20" height="12" rx="3" fill="#f2ead8"/><circle cx="25" cy="25" r="5" fill="#140c08"/><circle cx="39" cy="25" r="5" fill="#140c08"/><path d="M32 30 l-3 6 h6z" fill="#140c08"/><path d="M8 50 L56 62 M56 50 L8 62" stroke="#f2ead8" stroke-width="5" stroke-linecap="round"/></svg>')}`;
@@ -346,7 +347,7 @@ export class UI {
       const p = g.playerShip;
       $('bar-hull').style.width = `${clamp(p.hull / p.hullMax, 0, 1) * 100}%`;
       $('bar-sails').style.width = `${clamp(p.sails / p.sailsMax, 0, 1) * 100}%`;
-      $('bar-crew').style.width = `${clamp(p.crew / p.cls.crewMax, 0, 1) * 100}%`;
+      $('bar-crew').style.width = `${clamp(p.crew / (p.crewMax ?? p.cls.crewMax), 0, 1) * 100}%`;
       $('crew-val').textContent = p.crew;
       $('speed-val').textContent = p.speedKnots.toFixed(1);
       // point of sail, and the apparent wind, heel and leeway a sailing master would watch
@@ -811,7 +812,7 @@ export class UI {
     let html = '';
     if (type === 'merchant') {
       const room = g.playerCargoRoom();
-      html += `<p class="note">Hold: ${s.cargoCount()} / ${cls.cargo} · Prices in pieces of eight per unit.</p><table class="trade"><tr><th>Goods</th><th class="num">In hold</th><th class="num">Buy</th><th class="num">Sell</th><th></th></tr>`;
+      html += `<p class="note">Hold: ${s.cargoCount()} / ${g.playerStats().cargo} · Prices in pieces of eight per unit.</p><table class="trade"><tr><th>Goods</th><th class="num">In hold</th><th class="num">Buy</th><th class="num">Sell</th><th></th></tr>`;
       for (const [k, good] of Object.entries(GOODS)) {
         const buy = s.price(portId, k), sell = s.sellPrice(portId, k);
         const have = s.ship.cargo[k] || 0;
@@ -830,22 +831,25 @@ export class UI {
         const hullCost = hullNeed * 3, sailCost = sailNeed * 2;
         html += `<div class="shop-card"><div class="info"><b>Repair the hull</b><div>${hullNeed} points of damage — shot holes plugged, timbers replaced, seams caulked with oakum and pitch.</div></div><div class="price">${hullCost} ⛁</div><button data-repair="hull" ${hullNeed <= 0 || s.gold < hullCost ? 'disabled' : ''}>Repair</button></div>`;
         html += `<div class="shop-card"><div class="info"><b>Mend the sails & rigging</b><div>${sailNeed} points of damage to canvas and cordage.</div></div><div class="price">${sailCost} ⛁</div><button data-repair="sails" ${sailNeed <= 0 || s.gold < sailCost ? 'disabled' : ''}>Mend</button></div>`;
-        html += `<div class="shop-card"><div class="info"><b>Careen & scrape the hull</b><div>Burn off weed and worm for a cleaner bottom. Restores full speed.</div></div><div class="price">60 ⛁</div><button data-careen ${s.gold < 60 ? 'disabled' : ''}>Careen</button></div>`;
+        const foul = s.ship.fouling || 0;
+        const beach = /careen/i.test(town.doors?.find((dd) => dd.type === 'shipwright')?.label || '') || town.port.nation === 'pirate';
+        const careenCost = Math.round((beach ? 40 : 70) * cls.length / 22);
+        const state = foul < 0.1 ? 'clean' : foul < 0.35 ? 'some weed' : foul < 0.7 ? 'foul: weed and barnacles' : 'very foul, and the worm in her';
+        html += `<div class="shop-card"><div class="info"><b>Careen & scrape her bottom</b><div>Heave her down on the beach, burn off the weed, scrape the barnacles and pay the seams with tallow and sulphur against the worm. Her bottom: <b>${state}</b> (−${Math.round(foul * 30)}% speed).${beach ? ' The careening beach is cheaper.' : ''}</div></div><div class="price">${careenCost} ⛁</div><button data-careen="${careenCost}" ${foul < 0.02 || s.gold < careenCost ? 'disabled' : ''}>Careen</button></div>`;
       } else if (tab === 'Refit') {
-        const up = s.upgrades;
-        const items = [
-          ['guns', ['6-pounders', '9-pounders', '12-pounders', 'Long 18-pounders'], 'Heavier guns: more damage and range.', [900, 2200, 4800]],
-          ['hull', ['Standard planking', 'Doubled oak planking', 'Live-oak frames'], 'Stronger hull: more punishment before she founders.', [1200, 3200]],
-          ['sails', ['Old canvas', 'New Holland duck', 'Fine flax canvas'], 'Better sails: more speed on every point of sail.', [800, 2400]],
-        ];
-        for (const [k, names, desc, costs] of items) {
-          const lv = up[k];
-          const cost = costs[lv];
-          html += `<div class="shop-card"><div class="info"><b>${names[lv]}${cost ? ' → ' + names[lv + 1] : ''}</b><div>${desc}</div></div><div class="price">${cost ? cost + ' ⛁' : 'Finest'}</div><button data-upgrade="${k}" ${!cost || s.gold < cost ? 'disabled' : ''}>Refit</button></div>`;
+        const R = (s.ship.refit ||= emptyRefit());
+        html += `<p class="note">Refits belong to your ${cls.name}: sell her, or change ships, and they go with her (a well-found ship fetches more in part exchange).</p>`;
+        for (const [k, T] of Object.entries(TIERS)) {
+          const lv = R[k] || 0, base = T.costs[lv], cost = base ? refitCost(s.ship.cls, base) : 0;
+          html += `<div class="shop-card"><div class="info"><b>${T.names[lv]}${base ? ' → ' + T.names[lv + 1] : ''}</b><div>${T.desc}</div></div><div class="price">${base ? cost + ' ⛁' : 'Finest'}</div><button data-upgrade="${k}" ${!base || s.gold < cost ? 'disabled' : ''}>Refit</button></div>`;
+        }
+        for (const [k, X] of Object.entries(EXTRAS)) {
+          const cost = refitCost(s.ship.cls, X.cost), have = !!R[k];
+          html += `<div class="shop-card"><div class="info"><b>${X.name}</b><div>${X.desc}</div></div><div class="price">${have ? 'Fitted' : cost + ' ⛁'}</div><button data-extra="${k}" ${have || s.gold < cost ? 'disabled' : ''}>${have ? '✔' : 'Fit'}</button></div>`;
         }
       } else if (tab === 'Ships') {
-        const trade = Math.floor(cls.price * 0.5 * clamp(s.ship.hull / g.playerHullMax(), 0.3, 1));
-        html += `<p class="note">Your ${cls.name} is worth ${trade} ⛁ in part exchange. Guns, cargo and crew transfer to the new ship.</p>`;
+        const trade = Math.floor(cls.price * 0.5 * clamp(s.ship.hull / g.playerHullMax(), 0.3, 1) + (s.ship.refitValue || 0) * 0.4);
+        html += `<p class="note">Your ${cls.name} is worth ${trade} ⛁ in part exchange, refits included. Cargo and crew transfer to the new ship; her refits stay with her.</p>`;
         for (const id of town.port.shipyard) {
           const c = SHIP_CLASSES[id];
           const cost = Math.max(0, c.price - trade);
@@ -868,8 +872,8 @@ export class UI {
       if (tab === 'Crew') {
         const wage = town.port.nation === 'pirate' ? 12 : 22;
         const crew = s.ship.crew;
-        const room = cls.crewMax - crew;
-        html += `<p>Your crew: <b>${crew}</b> of ${cls.crewMax} berths. A full crew sails faster, reloads quicker and wins boarding fights.</p>`;
+        const room = g.playerStats().crewMax - crew;
+        html += `<p>Your crew: <b>${crew}</b> of ${g.playerStats().crewMax} berths. A full crew sails faster, reloads quicker and wins boarding fights.</p>`;
         html += `<div class="shop-card"><div class="info"><b>Sign on sailors</b><div>Out-of-work seamen, deserters and bold young hands. ${wage} ⛁ a head for the signing bounty.</div></div>
           <button data-hire="5" ${room < 5 || s.gold < wage * 5 ? 'disabled' : ''}>+5 (${wage * 5})</button>
           <button data-hire="${room}" ${room < 1 || s.gold < wage * room ? 'disabled' : ''}>Fill (${wage * room})</button></div>`;
@@ -958,25 +962,42 @@ export class UI {
       g.syncPlayerShipFromState();
       g.audio.ui('click');
     } else if (d.careen !== undefined) {
-      s.gold -= 60; this.toast('The hull is scraped clean.', 'good');
+      s.gold -= +d.careen || 60;
+      s.ship.fouling = 0;
+      const p = g.playerShip; if (p) p.speedMult = p.baseSpeedMult || 1;
+      g.state.advanceHours(10); // a tide or two on the beach
+      this.toast('Hove down, scraped and paid: her bottom is clean and she sails like a witch again. (Ten hours on the beach.)', 'good', 4500);
     } else if (d.upgrade) {
-      const costs = { guns: [900, 2200, 4800], hull: [1200, 3200], sails: [800, 2400] }[d.upgrade];
-      const c = costs[s.upgrades[d.upgrade]];
+      const R = (s.ship.refit ||= emptyRefit());
+      const c = refitCost(s.ship.cls, TIERS[d.upgrade].costs[R[d.upgrade] || 0]);
       g.syncStateFromPlayerShip();
       s.gold -= c;
-      s.upgrades[d.upgrade]++;
+      R[d.upgrade] = (R[d.upgrade] || 0) + 1;
+      s.ship.refitValue = (s.ship.refitValue || 0) + c;
       if (d.upgrade === 'hull') s.ship.hull = g.playerHullMax();
       g.rebuildPlayerShip();
       g.audio.ui('fanfare');
       this.toast('Refit complete.', 'good');
+    } else if (d.extra) {
+      const R = (s.ship.refit ||= emptyRefit());
+      const c = refitCost(s.ship.cls, EXTRAS[d.extra].cost);
+      g.syncStateFromPlayerShip();
+      s.gold -= c;
+      R[d.extra] = true;
+      s.ship.refitValue = (s.ship.refitValue || 0) + c;
+      if (d.extra === 'hold') s.ship.crew = Math.min(s.ship.crew, g.playerStats().crewMax);
+      g.rebuildPlayerShip();
+      g.audio.ui('fanfare');
+      this.toast(`${EXTRAS[d.extra].name}: fitted.`, 'good');
     } else if (d.buyship) {
-      const trade = Math.floor(cls.price * 0.5 * clamp(s.ship.hull / g.playerHullMax(), 0.3, 1));
+      const trade = Math.floor(cls.price * 0.5 * clamp(s.ship.hull / g.playerHullMax(), 0.3, 1) + (s.ship.refitValue || 0) * 0.4);
       const c = SHIP_CLASSES[d.buyship];
       const cost = Math.max(0, c.price - trade);
       if (s.cargoCount() > c.cargo) return this.toast('Your cargo will not fit in her hold. Sell some first.', 'warn');
       g.syncStateFromPlayerShip();
       s.gold -= cost;
       s.ship.cls = d.buyship;
+      s.ship.refit = emptyRefit(); s.ship.refitValue = 0; s.ship.fouling = 0; // a new ship: clean bottom, no refits yet
       s.ship.hull = g.playerHullMax();
       s.ship.sails = c.sails;
       s.ship.crew = Math.min(s.ship.crew, c.crewMax);
@@ -1011,7 +1032,7 @@ export class UI {
       this.toast(`The ${e.name} is sold; Captain ${e.captain.name} waits for another command.`, 'info');
     } else if (d.hire) {
       const wage = town.port.nation === 'pirate' ? 12 : 22;
-      const n = Math.min(+d.hire, cls.crewMax - s.ship.crew, Math.floor(s.gold / wage));
+      const n = Math.min(+d.hire, g.playerStats().crewMax - s.ship.crew, Math.floor(s.gold / wage));
       s.gold -= n * wage;
       s.ship.crew += n;
       g.syncPlayerShipFromState();

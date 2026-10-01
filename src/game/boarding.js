@@ -54,6 +54,8 @@ export class Boarding {
     this.buildDecks();
     // her crew, mustered on deck
     const navy = e.role === 'navy' || e.role === 'hunter';
+    // swivels sweep her deck as you close; your armoury arms more of your people
+    if (p.refit?.swivels) { const lost = Math.round(e.crew * 0.15); e.crew = Math.max(2, e.crew - lost); if (lost) g.ui.toast(`Your swivels sweep her deck as you close — ${lost} of her people down.`, 'good', 3000); }
     const nFoes = clamp(Math.round(e.crew / 6), 4, 14);
     for (let i = 0; i < nFoes; i++) {
       const at = this.deckPoint(e, rand(-0.7, 0.7), rand(-0.75, 0.75));
@@ -67,10 +69,10 @@ export class Boarding {
     }
     this.nFoes = nFoes;
     // your boarding party, on your own deck, ready to swing
-    const nAllies = clamp(Math.round(p.crew / 8), 3, 10);
+    const nAllies = clamp(Math.round(p.crew / 8) + (p.refit?.armoury ? 3 : 0), 3, p.refit?.armoury ? 13 : 10);
     for (let i = 0; i < nAllies; i++) {
       const at = this.deckPoint(p, this.side * 0.6, rand(-0.7, 0.7));
-      const n = new NPC(g, lookFor('pirate', 'pirate'), { x: at.x, y: at.y, z: at.z, kind: 'pirate', nation: 'pirate', health: 70 });
+      const n = new NPC(g, lookFor('pirate', 'pirate'), { x: at.x, y: at.y, z: at.z, kind: 'pirate', nation: 'pirate', health: p.refit?.armoury ? 85 : 70 });
       n.side = 'ally'; n.weapon = 'cutlass';
       g.npcs.push(n);
       this.allies.push(n);
@@ -228,7 +230,7 @@ export class Boarding {
   finish() {
     const g = this.g, p = this.own;
     const fallen = this.allies.filter((a) => a.dead).length;
-    const losses = Math.min(p.crew - 1, Math.round(fallen * (p.crew / Math.max(1, this.nAllies)) * 0.5));
+    const losses = Math.min(p.crew - 1, Math.round(fallen * (p.crew / Math.max(1, this.nAllies)) * 0.5 * (p.refit?.surgeon ? 0.6 : 1)));
     p.crew = Math.max(1, p.crew - losses);
     this.enemy.crew = Math.max(2, Math.round(this.enemy.crew * (this.foes.filter((f) => !f.dead).length / this.nFoes)));
     g.plunderPrize(this.enemy, losses, () => this.cleanup());

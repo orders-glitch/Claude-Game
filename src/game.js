@@ -47,7 +47,8 @@ import { GameState } from './game/state.js';
 import { Wreckage } from './entities/wreckage.js';
 import { Stealth } from './game/stealth.js';
 import { Seaside } from './game/seaside.js';
-import { Fleet } from './game/fleet.js';
+import { Fleet, makeCaptain } from './game/fleet.js';
+import { refitStats, fitRefitVisuals, emptyRefit } from './game/refits.js';
 import { Missions } from './game/missions.js';
 import { UI } from './ui/ui.js';
 
@@ -338,6 +339,9 @@ export class Game {
     this.weather.force('fair');
     this.lastHourBell = Math.floor(s.hours);
     s.onNewDay = () => { s.relaxMarkets(); };
+    // (saves from before refits belonged to ships: the captain's refits go to the ship he has now)
+    if (!s.ship.refit) s.ship.refit = { ...emptyRefit(), guns: s.upgrades?.guns || 0, hull: s.upgrades?.hull || 0, sails: s.upgrades?.sails || 0 };
+    if (s.ship.fouling === undefined) s.ship.fouling = 0;
     // player ship
     const pos = s.position;
     if (fromSave && pos && pos.mode === 'sail') {
@@ -375,18 +379,25 @@ export class Game {
   }
 
   // ======================================================================== ships
-  playerHullMax() { return SHIP_CLASSES[this.state.ship.cls].hull * (1 + 0.25 * this.state.upgrades.hull); }
+  // the refits fitted to your ship (each ship has her own: see refits.js)
+  playerRefit() { const sh = this.state.ship; return (sh.refit ||= emptyRefit()); }
+  playerStats() { return refitStats(this.state.ship.cls, this.playerRefit()); }
+  playerHullMax() { return SHIP_CLASSES[this.state.ship.cls].hull * this.playerStats().hullMult; }
 
   createPlayerShip(x, z, heading) {
     const s = this.state;
     const cls = s.ship.cls;
     const ship = new Ship(this, cls, 'pirate', {
       isPlayer: true, name: s.shipName, x, z, heading, flag: s.flag || 'pirate',
-      strength: 1 + 0.25 * s.upgrades.hull, hull: s.ship.hull, sails: s.ship.sails, crew: s.ship.crew, cargo: s.ship.cargo,
-      gunDamage: 1 + 0.35 * s.upgrades.guns, gunRange: 1 + 0.07 * s.upgrades.guns, sailTint: '#e6dcc4', crewFigures: this.crowd?.ready ? 0 : 6,
+      strength: this.playerStats().hullMult, hull: s.ship.hull, sails: s.ship.sails, crew: s.ship.crew, cargo: s.ship.cargo,
+      gunDamage: this.playerStats().gunDamage, gunRange: this.playerStats().gunRange, sailTint: this.playerStats().sailTint, crewFigures: this.crowd?.ready ? 0 : 6,
     });
     ship.id = PLAYER_ID;
-    ship.speedMult = 1 + 0.07 * s.upgrades.sails;
+    ship.baseSpeedMult = this.playerStats().speedMult;
+    ship.speedMult = ship.baseSpeedMult * (1 - 0.3 * (s.ship.fouling || 0));
+    ship.refit = this.playerRefit();
+    ship.crewMax = this.playerStats().crewMax;
+    fitRefitVisuals(ship, ship.refit);
     ship.reloadBase = 6.5;
     ship.sailTarget = 0;
     ship.sailSet = 0;
@@ -425,7 +436,7 @@ export class Game {
     if (!p) return;
     p.hull = this.state.ship.hull; p.sails = this.state.ship.sails; p.crew = this.state.ship.crew;
   }
-  playerCargoRoom() { return SHIP_CLASSES[this.state.ship.cls].cargo - this.state.cargoCount(); }
+  playerCargoRoom() { return this.playerStats().cargo - this.state.cargoCount(); }
 
   spawnShip(cls, nation, opts = {}) {
     const name = opts.name || pick(SHIP_NAMES[nation] || SHIP_NAMES.britain);
@@ -658,7 +669,10 @@ export class Game {
     const s = this.state;
     // time: one game minute per real second
     if (this.mode !== 'title') {
-      s.advanceHours(dt / 60 * this.timeScale);
+      const dh = dt / 60 * this.timeScale;
+      s.advanceHours(dh);
+      this.updateBottom(dh);
+      this.updatePrizesAway();
       const hr = Math.floor(s.hours);
       if (hr !== this.lastHourBell) {
         this.lastHourBell = hr;
@@ -941,8 +955,15 @@ export class Game {
         this.combatT = 20;
       } else if (p.reload[sd] > 0) this.ui.toast(`${sd === 'port' ? 'Larboard' : 'Starboard'} guns reloading…`, 'warn', 900);
     };
+    const fwdLook = camFwd.dot(p.forward);
     if (inp.mouseHit(0) && abeam) fire(side);
-    else if (inp.mouseHit(0)) this.ui.toast('Bring the guns to bear — look off the beam', 'warn', 1200);
+    else if (inp.mouseHit(0) && p.refit?.chase && Math.abs(fwdLook) > 0.6) {
+      // the chase guns, at the bow or the stern
+      if (!p.fireChase(fwdLook > 0 ? 'bow' : 'stern', elevation, this)) this.ui.toast('Chase gun reloading…', 'warn', 900);
+      else { this.combatT = 20; this.shakeT = 0.2; }
+    } else if (inp.mouseHit(0)) this.ui.toast(p.refit?.chase ? 'Bring a gun to bear — look off the beam, or right ahead or astern for the chasers' : 'Bring the guns to bear — look off the beam', 'warn', 1200);
+    // swivels sweep the deck of an enemy close alongside
+    if (p.refit?.swivels) this.fireSwivels(p, dt);
     if (inp.hit('KeyQ')) fire('port');
     if (inp.hit('KeyE')) fire('starboard');
     // the arc of the shot, whenever the guns bear
@@ -1224,7 +1245,8 @@ export class Game {
   // most of her canvas); a proper job wants a shipwright. Slower under fire, with a short crew, or with all
   // hands at the sheets.
   repairCaps(p) {
-    return { hull: p.hullMax * 0.75, sails: p.sailsMax * 0.85 * (1 - p.mastLoss) };
+    const cs = p.refit?.carpenter;
+    return { hull: p.hullMax * (cs ? 0.9 : 0.75), sails: p.sailsMax * (cs ? 0.95 : 0.85) * (1 - p.mastLoss) };
   }
 
   toggleRepair(p) {
@@ -1245,7 +1267,7 @@ export class Game {
     if (!p.repairing || this.mode !== 'sail') { el.style.display = 'none'; return; }
     const cap = this.repairCaps(p);
     const hands = clamp(p.crew / Math.max(1, p.cls.crewMin * 1.5), 0.25, 1);
-    const rate = hands * (this.combatT > 0 ? 0.35 : 1) * (p.sailSet > 0.7 ? 0.6 : 1) * (p.fire > 0 ? 0.2 : 1);
+    const rate = hands * (this.combatT > 0 ? 0.35 : 1) * (p.sailSet > 0.7 ? 0.6 : 1) * (p.fire > 0 ? 0.2 : 1) * (p.refit?.carpenter ? 1.6 : 1);
     if (p.hull < cap.hull) p.hull = Math.min(cap.hull, p.hull + p.hullMax * 0.006 * rate * dt);
     if (p.sails < cap.sails) p.sails = Math.min(cap.sails, p.sails + p.sailsMax * 0.01 * rate * dt);
     // a jury topmast, one at a time
@@ -1268,6 +1290,70 @@ export class Game {
     if (p.hull >= cap2.hull - 0.01 && p.sails >= cap2.sails - 0.01 && !p.mastsDown.size) {
       p.repairing = false;
       this.ui.toast('“Repairs done, Captain — as far as they can be at sea.” — Mr. Ward, first mate', 'mate', 3500);
+    }
+  }
+
+  // A ship's bottom fouls in warm water: weed and barnacles, and the teredo worm boring into her planking. Over
+  // six weeks at sea (or riding at anchor) she loses up to a third of her speed; careening restores it.
+  updateBottom(dh) {
+    const sh = this.state.ship, p = this.playerShip;
+    if (!p || this.transitioning) return;
+    sh.fouling = Math.min(1, (sh.fouling || 0) + dh / (24 * 42));
+    p.speedMult = (p.baseSpeedMult || 1) * (1 - 0.3 * sh.fouling);
+    if (sh.fouling > 0.4 && !this._foulSaid && this.mode === 'sail') { this._foulSaid = true; this.ui.toast('“Her bottom\'s foul, Captain — weed a fathom long and the worm in her. She\'s lost a knot or two. A careening beach would set her right.” — Mr. Ward, first mate', 'mate', 6000); }
+    if (sh.fouling < 0.2) this._foulSaid = false;
+  }
+
+  // swivel guns at close quarters: grape across an enemy's deck, a few of her people at a time
+  fireSwivels(p, dt) {
+    this._swivelT = (this._swivelT || 0) - dt;
+    if (this._swivelT > 0) return;
+    for (const o of this.ships) {
+      if (o === p || !o.alive || o.struck || o.role === 'consort' || !this.isHostile(o, p)) continue;
+      const d = o.position.distanceTo(p.position);
+      if (d > (o.cls.beam + p.cls.beam) / 2 + 30) continue;
+      this._swivelT = 2.2;
+      const side = Math.sign((o.position.x - p.position.x) * p.right.x + (o.position.z - p.position.z) * p.right.z) || 1;
+      const from = p.localToWorld(new THREE.Vector3(side * p.cls.beam * 0.45, p.model.deckY + 1.4, (Math.random() - 0.5) * p.cls.length * 0.4));
+      const dir = o.position.clone().setY(from.y).sub(from).normalize();
+      this.effects.muzzle(from, dir, false);
+      this.audio.musket(from);
+      const k = Math.random() < 0.6 ? 1 + Math.floor(Math.random() * 2) : 0;
+      o.crew = Math.max(1, o.crew - k);
+      if (k) this.effects.hit(o.localToWorld(new THREE.Vector3(0, o.model.deckY + 1, 0)), 0.2);
+      return;
+    }
+  }
+
+  // prizes sent into port with a prize crew to be sold: the money and the men come back when she's sold
+  sendPrizeToPort(ship) {
+    const s = this.state, p = this.playerShip;
+    const prizeCrew = Math.min(Math.max(4, ship.cls.crewMin), Math.max(0, p.crew - p.cls.crewMin - 2));
+    if (prizeCrew < 4) { this.ui.toast('You can\'t spare a prize crew.', 'warn'); return false; }
+    let cargo = 0;
+    for (const k in ship.cargo) cargo += (ship.cargo[k] || 0) * (GOODS[k]?.base || 10) * 0.6;
+    const value = Math.round(ship.cls.price * 0.35 * clamp(ship.hull / ship.hullMax, 0.3, 1) + cargo);
+    p.crew -= prizeCrew; s.ship.crew = p.crew;
+    (s.prizesAway ||= []).push({ name: ship.name, cls: ship.cls.name, value, crew: prizeCrew, due: s.day * 24 + s.hours + 36 + Math.random() * 36, port: 'Nassau' });
+    this.ui.toast(`${prizeCrew} hands take the ${ship.name} into Nassau to be condemned and sold. Expect about ${value} pieces of eight in two or three days.`, 'good', 5500);
+    this.removeShip(ship);
+    return true;
+  }
+
+  updatePrizesAway() {
+    const s = this.state;
+    if (!s.prizesAway?.length) return;
+    const now = s.day * 24 + s.hours;
+    for (const pz of [...s.prizesAway]) {
+      if (now < pz.due) continue;
+      s.prizesAway.splice(s.prizesAway.indexOf(pz), 1);
+      s.gold += pz.value;
+      s.stats.plunder = (s.stats.plunder || 0) + pz.value;
+      const p = this.playerShip, room = p ? (p.crewMax ?? p.cls.crewMax) - p.crew : 0;
+      const back = Math.min(pz.crew, Math.max(0, room));
+      if (p) { p.crew += back; s.ship.crew = p.crew; }
+      this.ui.toast(`Word from ${pz.port}: the ${pz.name} (${pz.cls}) has been sold for ${pz.value} pieces of eight.${back ? ` Her prize crew of ${back} rejoins you.` : ''}`, 'good', 6000);
+      this.audio.coins();
     }
   }
 
@@ -1400,7 +1486,7 @@ export class Game {
       const n = Math.min(q, this.playerCargoRoom());
       if (n > 0) { s.ship.cargo[g] = (s.ship.cargo[g] || 0) + n; ship.cargo[g] -= n; taken.push(`${n} ${GOODS[g].name}`); }
     }
-    const recruits = Math.min(Math.floor(ship.crew * 0.3), p.cls.crewMax - p.crew);
+    const recruits = Math.min(Math.floor(ship.crew * 0.3), (p.crewMax ?? p.cls.crewMax) - p.crew);
     p.crew += Math.max(0, recruits);
     if (ship.nationId !== 'pirate') s.addNotoriety(ship.nationId, 0.8);
     ship.strike(this);
@@ -1412,6 +1498,7 @@ export class Game {
     this.ui.choice('Prize Taken', text, [
       canTake ? { label: `Take her as flagship (${ship.cls.name})`, act: () => { after(); this.takeCommand(ship); } } : null,
       this.fleet.room() > 0 && p.crew > p.cls.crewMin + 6 ? { label: `Take her into your squadron (${this.fleet.list.length + 1} of ${this.fleet.capacity()})`, act: () => { after(); this.fleet.takePrize(ship); } } : null,
+      { label: 'Send her into port to be sold', act: () => { after(); this.sendPrizeToPort(ship); } },
       { label: 'Set her adrift', act: () => { after(); ship.ai.mode = 'flee'; ship.ai.target = p; ship.sailTarget = 1; ship.struck = true; ship.despawnT = 60; } },
       { label: 'Scuttle her', act: () => { after(); ship.lastHitBy = p; ship.startSinking(this); } },
     ].filter(Boolean));
@@ -1422,6 +1509,7 @@ export class Game {
     const cls = ship.cls;
     if (s.cargoCount() > cls.cargo) {
       let excess = s.cargoCount() - cls.cargo;
+      void 0;
       for (const k of Object.keys(s.ship.cargo).sort((a, b) => GOODS[a].base - GOODS[b].base)) {
         const n = Math.min(excess, s.ship.cargo[k]);
         s.ship.cargo[k] -= n; excess -= n;
@@ -1431,17 +1519,30 @@ export class Game {
     }
     const old = this.playerShip;
     const oldCls = old.cls;
+    const oldRec = { cls: oldCls.id, name: old.name, hull: old.hull, sails: old.sails, crew: old.crew, refit: s.ship.refit, pos: old.position.clone(), heading: old.heading };
     s.ship.cls = cls.id;
     s.ship.hull = Math.max(ship.hull, cls.hull * 0.4);
     s.ship.sails = Math.max(ship.sails, cls.sails * 0.4);
     s.ship.crew = Math.min(old.crew, cls.crewMax);
+    s.ship.refit = emptyRefit(); // (your refits stay with your old ship)
+    s.ship.refitValue = 0;
+    s.ship.fouling = Math.min(1, (ship.fouling ?? 0.3));
     const pos = ship.position.clone(), heading = ship.heading;
     this.removeShip(ship);
     this.removeShip(old);
     this.createPlayerShip(pos.x, pos.z, heading);
     this.enterSail();
-    // old ship is left behind as a derelict
-    this.ui.toast(`You take command of the ${cls.name}. Your old ${oldCls.name} is left to drift.`, 'good', 5000);
+    // your old ship sails on in company, if the squadron has room and there are hands to sail her
+    const spare = oldRec.crew - s.ship.crew;
+    const keepHands = Math.max(oldCls.crewMin + 2, Math.round(oldCls.crewMin * 1.4));
+    if (this.fleet.room() > 0 && (spare >= oldCls.crewMin || this.playerShip.crew - keepHands > cls.crewMin + 4)) {
+      let crew = Math.max(0, spare);
+      if (crew < keepHands) { const take = keepHands - crew; this.playerShip.crew -= take; s.ship.crew = this.playerShip.crew; crew += take; }
+      const captain = this.fleet.pool.length ? this.fleet.pool.shift() : makeCaptain(Math.random, 0.3);
+      const e = this.fleet.addEntry(oldRec.cls, oldRec.name, captain, oldRec.hull, oldRec.sails, crew);
+      this.fleet.spawn(e, oldRec.pos, oldRec.heading);
+      this.ui.toast(`You take command of the ${cls.name}. Your old ${oldCls.name}, the ${oldRec.name}, sails on in company under Captain ${captain.name}.`, 'good', 5500);
+    } else this.ui.toast(`You take command of the ${cls.name}. Your old ${oldCls.name} is left to drift (no room in your squadron, or no hands to sail her).`, 'good', 5500);
     this.save();
   }
 
@@ -1453,8 +1554,7 @@ export class Game {
     this.transitioning = false;
     this.transition(3800, () => {
       s.gold = Math.floor(s.gold * 0.7);
-      s.upgrades.hull = Math.min(s.upgrades.hull, 1);
-      s.ship = { cls: 'sloop', hull: SHIP_CLASSES.sloop.hull * (1 + 0.25 * s.upgrades.hull), sails: SHIP_CLASSES.sloop.sails, crew: 18, cargo: {} };
+      s.ship = { cls: 'sloop', hull: SHIP_CLASSES.sloop.hull, sails: SHIP_CLASSES.sloop.sails, crew: 18, cargo: {}, refit: emptyRefit(), fouling: 0.2 }; // (a lent sloop, bare of refits)
       for (const k in s.notoriety) s.notoriety[k] = Math.max(0, s.notoriety[k] - 1.5);
       this.removeShip(this.playerShip);
       this.despawnHunters();
@@ -2027,7 +2127,7 @@ export class Game {
       const d = to.length();
       if (d > 2.6) continue;
       if (to.normalize().dot(fwd) < 0.35) continue;
-      n.takeDamage(34 + this.state.upgrades.guns * 3, w);
+      n.takeDamage(34, w);
       hit = true;
       if (n.dead) { this.state.stats.duels++; this.lootBody(n); }
     }
@@ -2135,6 +2235,7 @@ export class Game {
       p.speed = 4; p.sailTarget = 1;
       p.updateAxes();
       this.state.advanceHours(hours);
+      this.updateBottom(hours);
       for (const s of [...this.ships]) if (!s.isPlayer && !s.mission) this.removeShip(s);
       this.fleet.regroup();
       this.camYaw = p.heading + 0.4;

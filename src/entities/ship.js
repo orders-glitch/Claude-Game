@@ -125,7 +125,8 @@ export class Ship {
     const crewF = clamp(this.crew / Math.max(1, cls.crewMin * 1.5), 0.3, 1);
     const hullF = 0.7 + 0.3 * clamp(this.hull / this.hullMax, 0, 1);
     const cargoLoad = this.cargoCount() / Math.max(1, cls.cargo);
-    this.sailPower = sailHealth * crewF * hullF * (1 - this.mastLoss) * (this.speedMult || 1);
+    const stuns = this.refit?.stuns && this.effTheta < 1.2 && this.sailSet > 0.6 ? 1.12 : 1; // studding sails set, running free
+    this.sailPower = sailHealth * crewF * hullF * (1 - this.mastLoss) * (this.speedMult || 1) * stuns;
     // a full hold and shot-through planking make her sit deeper and drag more
     this.extraDrag = cargoLoad * 0.004 + (1 - hullF) * 0.02 + (this.aground > 0 ? 0.8 : 0) + (this.anchored ? 0.3 : 0);
     this.rudder = damp(this.rudder, this.rudderInput, 3, dt);
@@ -165,6 +166,7 @@ export class Ship {
     // --- reloads
     this.reload.port = Math.max(0, this.reload.port - dt);
     this.reload.starboard = Math.max(0, this.reload.starboard - dt);
+    if (this.chaseReload) { this.chaseReload.bow = Math.max(0, this.chaseReload.bow - dt); this.chaseReload.stern = Math.max(0, this.chaseReload.stern - dt); }
 
     // --- fire aboard: it spreads unless enough hands fight it, burns the planking, then climbs into the rigging
     if (this.fire > 0) {
@@ -394,6 +396,25 @@ export class Ship {
     return true;
   }
 
+  // A chase gun: a long gun firing right ahead (or right astern), with its own crew and its own reload
+  fireChase(end, elevation, world) {
+    if (!this.alive || this.struck) return false;
+    this.chaseReload = this.chaseReload || { bow: 0, stern: 0 };
+    if (this.chaseReload[end] > 0) return false;
+    this.chaseReload[end] = 4.5;
+    const sgn = end === 'bow' ? 1 : -1;
+    const M = this.model, L = M.deckLen || this.cls.length * 0.7, mid = M.deckMid || 0;
+    const wp = this.localToWorld(new THREE.Vector3(0, M.deckY + 0.9, end === 'bow' ? mid - L / 2 - 1 : mid + L / 2 + 1));
+    const d = this.forward.clone().multiplyScalar(sgn);
+    const vel = BALL_SPEED * 1.05 * this.gunRange; // a long gun carries further
+    const v = new THREE.Vector3(d.x * Math.cos(elevation), Math.sin(elevation), d.z * Math.cos(elevation)).multiplyScalar(vel);
+    v.x += this.velocity?.x || 0; v.z += this.velocity?.z || 0;
+    world.projectiles.spawn(wp, v, this, this.ammo);
+    world.effects.muzzle(wp, d, true);
+    world.audio?.cannon?.(wp, 1);
+    return true;
+  }
+
   updateShots(dt, world) {
     const keep = [];
     this.group.updateMatrixWorld();
@@ -426,6 +447,7 @@ export class Ship {
 
   damage(hullDmg, sailDmg, crewDmg, world, attacker) {
     if (!this.alive) return;
+    if (this.refit?.surgeon && crewDmg > 0) crewDmg = Math.random() < 0.4 ? Math.floor(crewDmg * 0.6) : crewDmg; // the surgeon saves some
     this.hull -= hullDmg;
     this.sails = Math.max(0, this.sails - sailDmg);
     this.crew = Math.max(0, this.crew - crewDmg);
