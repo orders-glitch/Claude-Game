@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { clamp, damp, dampAngle, rand, randInt } from '../core/noise.js';
 import { ISLANDS, PORTS, SALVAGE_CAMP, SHIP_CLASSES } from './data.js';
 import { shipLibrary } from '../entities/shipLibrary.js';
+import { addWaterMask } from '../world/waterMask.js';
 
 const WOOD = () => new THREE.MeshStandardMaterial({ color: '#6b4c30', roughness: 0.85, side: THREE.DoubleSide });
 
@@ -19,7 +20,7 @@ function boatMesh() {
   const pos = [], idx = [];
   for (let i = 0; i <= NU; i++) {
     const u = i / NU * 2 - 1; // -1 bow .. 1 stern
-    const w = B * Math.pow(Math.max(0, 1 - Math.pow(Math.abs(u < 0 ? u * 1.02 : u * 0.9), 2.2)), 0.55) + (u > 0.85 ? 0.25 : 0);
+    const w = B * Math.pow(Math.max(0, 1 - Math.pow(Math.abs(u < 0 ? u * 1.02 : u * 0.8), 2.2)), 0.55); // a fine bow, a broad square stern
     const sheer = 0.12 * u * u;
     for (let j = 0; j <= NV; j++) {
       const v = (j / NV) * Math.PI; // round the bilge from one gunwale to the other
@@ -32,7 +33,15 @@ function boatMesh() {
   geo.setIndex(idx);
   geo.computeVertexNormals();
   const M = WOOD();
-  g.add(new THREE.Mesh(geo, M));
+  const hull = new THREE.Mesh(geo, M);
+  // the transom: the flat board closing her stern
+  const ring = [];
+  for (let j = 0; j <= NV; j++) { const k = (NU * (NV + 1) + j) * 3; ring.push(new THREE.Vector2(pos[k], pos[k + 1])); }
+  const tr = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(ring)), M);
+  tr.position.z = L / 2;
+  hull.add(tr);
+  g.add(hull);
+  addWaterMask(hull, { inset: 0.97, drop: 0.02 }); // the sea stays outside
   // transom, thwarts, gunwales
   const dark = new THREE.MeshStandardMaterial({ color: '#4a3220', roughness: 0.9 });
   for (const z of [-1.2, 0, 1.2]) { const t = new THREE.Mesh(new THREE.BoxGeometry(B * 1.7, 0.06, 0.28), dark); t.position.set(0, D * 0.72, z); g.add(t); }

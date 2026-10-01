@@ -75,7 +75,7 @@ export class Ocean {
     });
     this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = -1;
+    this.mesh.renderOrder = 1; // after the boats and their water masks (see waterMask.js)
     this.mesh.name = 'ocean';
     scene.add(this.mesh);
   }

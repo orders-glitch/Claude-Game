@@ -2,6 +2,7 @@
 // swinging to their cables. Purely scenery (and a ship-collision obstacle), but a busy roadstead is what
 // makes Port Royal or La Habana feel like a port.
 import * as THREE from 'three';
+import { addWaterMask } from './waterMask.js';
 import { shipLibrary } from '../entities/shipLibrary.js';
 import { SHIP_CLASSES } from '../game/data.js';
 import { props } from './props.js';
@@ -65,6 +66,7 @@ export class Harbour {
         const group = new THREE.Group();
         if (canoe) inner.rotation.y = Math.PI / 2; else inner.scale.setScalar(1.4);
         group.add(inner);
+        addWaterMask(inner); // keep the sea out of her
         scene.add(group);
         const p = water[Math.floor(t.rand() * water.length)].clone();
         const seats = canoe ? [new THREE.Vector3(0, 0.05, -1.2), new THREE.Vector3(0, 0.05, 1.1)] : [new THREE.Vector3(0, 0.2, -0.5), new THREE.Vector3(0, 0.2, 1.1)].slice(0, 1 + (i % 2));
