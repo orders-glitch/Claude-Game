@@ -312,10 +312,10 @@ export class CityKit {
     }
     if (o.tree) {
       // a great ceiba shading one corner (the Templete tree)
-      const p = P(w * 0.32, -d * 0.3);
-      B.cyl('wood', 0.9, 1.3, 7, 10, T(p.a, y + 3.5, p.b), '#6b5d4c');
-      for (let k = 0; k < 7; k++) B.add('plain', new THREE.IcosahedronGeometry(3.6 + rnd() * 1.5, 1), T(p.a + (rnd() - 0.5) * 7, y + 8 + rnd() * 3, p.b + (rnd() - 0.5) * 7), pick2(['#3f5f2a', '#4a6a30', '#36552a'], rnd));
-      t.addCollider(p.a, p.b, 1.3, 1.3, 0, 8);
+      // (a real scanned tree from the island woods, planted with the town's other trees: see vegetation.js)
+      const p = P(w * 0.32, -d * 0.3), pw = t.toWorld(p.a, p.b);
+      (t.extraTrees ||= []).push(['tree', pw.x, y, pw.z, rnd() * 6.28, 1.8]);
+      t.addCollider(p.a, p.b, 0.7, 0.7, 0, 6); // its trunk
     }
     for (let k = 0; k < (o.benches ?? 4); k++) {
       const u = (k % 2 ? 1 : -1) * w * 0.3, v = (k < 2 ? -1 : 1) * d * 0.22;
@@ -913,7 +913,9 @@ function cloister(K, x, z, bearing) {
   }
   // cloister garden
   B.box('plain', S - W * 2, 0.1, S - W * 2, T(a, y + 0.05, b, r), '#5f7a3a');
-  for (let k = 0; k < 4; k++) B.add('plain', new THREE.IcosahedronGeometry(1.6, 1), T(a + (rnd() - 0.5) * 8, y + 2, b + (rnd() - 0.5) * 8), '#3f6a2a');
+  // its trees and shrubs: real plants (vegetation.js), not green balls
+  for (let k = 0; k < 2; k++) { const pw = t.toWorld(a + (rnd() - 0.5) * 8, b + (rnd() - 0.5) * 8); (t.extraTrees ||= []).push(['tree', pw.x, y, pw.z, rnd() * 6.28, 1.0]); }
+  for (let k = 0; k < 4; k++) { const pw = t.toWorld(a + (rnd() - 0.5) * 9, b + (rnd() - 0.5) * 9); (t.extraPlants ||= []).push(['bush', pw.x, y, pw.z, rnd() * 6.28, 1.2]); }
   K.claim(a, b, S / 2 + 1, S / 2 + 1, r);
 }
 
