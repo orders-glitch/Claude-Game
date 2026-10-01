@@ -1,6 +1,9 @@
 // What a collider presents on top at its local (lx, lz): a gable or hipped roof's slope, a flat roof's floor,
 // or simply its top. Shared by the game (walking on roofs) and the player (climbing to the eaves).
+import { sampleShape } from './roofMap.js';
+
 export function colliderSurface(c, lx, lz) {
+  if (c.hmap) return sampleShape(c, lx, lz); // the building's real shape from above (see roofMap.js)
   const R = c.roof;
   if (!R) return c.top;
   if (R.flat) return R.y;

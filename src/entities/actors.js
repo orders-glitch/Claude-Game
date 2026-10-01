@@ -400,6 +400,7 @@ export class PlayerWalker extends Walker {
     const c = W.c;
     const lx = W.axis === 'x' ? W.sign * (c.hw - 0.15) : along, lz = W.axis === 'x' ? along : W.sign * (c.hd - 0.15);
     const R = c.roof;
+    if (c.hmap) return colliderSurface(c, lx, lz); // (the real shape includes the parapet)
     return colliderSurface(c, lx, lz) + (R && R.flat ? R.lip : 0);
   }
 

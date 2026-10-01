@@ -5,6 +5,7 @@ import { Builder, T, gableRoofGeometry, gableEndGeometry, hipRoofGeometry, share
 import { mulberry32, pick as rpick } from '../core/noise.js';
 import { flagTexture } from '../core/textures.js';
 import { props, PM } from './props.js';
+import { bakeShapes } from './roofMap.js';
 import { PLANS, CityKit } from './cities.js';
 import { HARBOURS } from '../game/harbours.js';
 import { geo } from '../game/geo.js';
@@ -470,6 +471,7 @@ export class Town {
     // Local builder coordinates: x=a (along coast, but sign flipped by rotation), z=b inland.
     scene.add(group);
     this.group = group;
+    bakeShapes(this, this.terrain); // what you walk on is the shape you see
 
     if (this.flagPos) {
       const tex = flagTexture(this.nation.flag);
