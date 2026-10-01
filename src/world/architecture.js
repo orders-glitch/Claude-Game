@@ -444,9 +444,11 @@ export function tent(B, t, rnd, a, b, rot, w, d) {
   for (const s of [-1, 1]) B.cyl('wood', 0.05, 0.05, h, 5, m(0, y + h / 2 - 0.1, s * (d / 2 + 0.1)), '#5a4632');
   // a patch or two of darker sail
   if (rnd() < 0.6) B.box('cloth', 0.9, 0.7, 0.02, m(w * 0.22, y + h * 0.45, (rnd() - 0.5) * d * 0.5, 0, 1, 1, 1, 0, Math.atan2(h, w / 2) - Math.PI / 2), pick(['#9c8c70', '#b09e7e', '#8a7a60'], rnd));
-  if (rnd() < 0.5) t.prop('treasure_chest', 0.9, y, -d / 2 - 0.9, rot + (rnd() - 0.5), 0.8) || B.box('wood', 0.9, 0.55, 0.55, m(0.9, y + 0.27, -d / 2 - 0.7), '#5a4028');
+  // (the chest stands at this tent's door: its spot in the town, not the tent's own frame)
+  const cp = at(m, 0.9, -d / 2 - 0.9);
+  if (rnd() < 0.5) t.prop('treasure_chest', cp.a, t.groundAt(cp.a, cp.b), cp.b, rot + (rnd() - 0.5), 0.8) || B.box('wood', 0.9, 0.55, 0.55, m(0.9, y + 0.27, -d / 2 - 0.7), '#5a4028');
   void g;
-  t.addCollider(a, b, w / 2 + 0.2, d / 2 + 0.2, rot, h);
+  t.addCollider(a, b, w / 2 + 0.1, d / 2 + 0.1, rot, h, { y: y - 0.1, rise: h, ridge: 'z', o: 0, w, d }); // the canvas slopes from the ridge
 }
 
 // lean-to: a slanted sail or thatch roof on posts against a plank back wall, a hammock slung beneath
@@ -490,11 +492,13 @@ export function ruin(B, t, rnd, a, b, rot, w, d, col = '#d9d0be') {
       if (rnd() < 0.18) continue; // breach
       const l = len / segs, off = -len / 2 + l * (k + 0.5), h = 1.2 + rnd() * 3.4;
       B.box('stone', along ? l : 0.6, h, along ? 0.6 : l, m(x + (along ? off : 0), y0 + h / 2, z + (along ? 0 : off)), col);
+      // each standing stretch of wall solid to its own broken height; the breaches open
+      const p = at(m, x + (along ? off : 0), z + (along ? 0 : off));
+      t.colliderTo(p.a, p.b, along ? l / 2 : 0.35, along ? 0.35 : l / 2, rot, y0 + h);
     }
   }
   // fallen rubble
   for (let i = 0; i < 5; i++) B.box('stone', 0.5 + rnd(), 0.3 + rnd() * 0.4, 0.5 + rnd(), m((rnd() - 0.5) * w, y0 + 0.4, (rnd() - 0.5) * d, rnd() * 3), col);
-  t.addCollider(a, b, w / 2 + 0.3, d / 2 + 0.3, rot, 3);
 }
 
 // ---------------------------------------------------------------- shared
@@ -578,6 +582,7 @@ export function church(B, t, rnd, a, b, rot, o = {}) {
       B.box(bucket, sw, nh, sw, m(tx, base + top + nh / 2, tz), wall);
       for (const [fx, fz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) B.box('window', fx ? 0.2 : sw * 0.42, nh * 0.45, fz ? 0.2 : sw * 0.42, m(tx + fx * sw / 2, base + top + nh * 0.55, tz + fz * sw / 2), '#1a140e');
       B.box(bucket, sw + 0.4, 0.35, sw + 0.4, m(tx, base + top + nh, tz), '#e8dcc4');
+      { const sp = new THREE.Vector3().applyMatrix4(m(tx, 0, tz)); t.addCollider(sp.x, sp.z, sw / 2, sw / 2, rot, 0, { y: base + top + nh + 0.17, flat: true, lip: 0 }); }
       for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) B.add('stone', new THREE.SphereGeometry(0.35, 6, 4), m(tx + cx * sw / 2, base + top + nh + 0.5, tz + cz * sw / 2), '#e8dcc4'); // finials
       top += nh;
     }

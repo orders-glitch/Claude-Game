@@ -4,6 +4,7 @@
 // neighbours sitting out, strings of onions and peppers at the grocers', washing strung across the lanes and
 // canvas shades over the busiest streets, market women selling from mats, and trees in the courtyards.
 import * as THREE from 'three';
+import { props } from './props.js';
 import { T } from './builder.js';
 
 const pick = (arr, rnd) => arr[Math.floor(rnd() * arr.length) % arr.length];
@@ -107,8 +108,9 @@ export function dress(K, id) {
     if (r < 0.35) {
       const two = rnd() < 0.5;
       t.prop('wooden_crate_01', p.a, y, p.b, out, 1.2);
-      if (two) t.prop('wooden_crate_02', p.a, y + 0.62, p.b, out + (rnd() - 0.5) * 0.3, 1.0);
-      t.addCollider(p.a, p.b, 0.38, 0.38, out, two ? 1.15 : 0.62); // something to vault onto
+      const h1 = props.height('wooden_crate_01', 1.2) || 0.62, h2 = props.height('wooden_crate_02', 1.0) || 0.53;
+      if (two) t.prop('wooden_crate_02', p.a, y + h1, p.b, out + (rnd() - 0.5) * 0.3, 1.0);
+      t.addCollider(p.a, p.b, 0.38, 0.38, out, two ? h1 + h2 : h1); // something to vault onto
     }
     else if (r < 0.6) for (let k = 0; k < 3; k++) B.add('cloth', new THREE.SphereGeometry(0.3, 7, 5), T(p.a + (rnd() - 0.5) * 0.5, y + 0.2 + (k === 2 ? 0.3 : 0), p.b + (rnd() - 0.5) * 0.5, rnd() * 3, 1.1, 0.7, 1.4), pick(['#c8b58a', '#b8a47a', '#d6c9a8'], rnd));
     else if (r < 0.8) {

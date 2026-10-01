@@ -133,17 +133,21 @@ export class Town {
     const rnd = this.rand;
     const r = rnd();
     const ry = rnd() * Math.PI * 2;
+    // stacked by the models' measured heights, each sitting on the one below
+    const H = (n, sc) => props.height(n, sc) || 0.6 * sc;
     if (r < 0.4) {
       this.prop('wooden_crate_02', a, y, b, ry, 1.4);
-      if (rnd() < 0.6) this.prop('wooden_crate_01', a + (rnd() - 0.5) * 0.3, y + 0.63, b, ry + (rnd() - 0.5) * 0.6, 1.6);
-      else this.prop(rnd() < 0.5 ? 'jug_01' : 'wicker_basket_01', a, y + 0.63, b, rnd() * 6, 1.6);
+      const y2 = y + H('wooden_crate_02', 1.4);
+      if (rnd() < 0.6) this.prop('wooden_crate_01', a + (rnd() - 0.5) * 0.15, y2, b, ry + (rnd() - 0.5) * 0.6, 1.2);
+      else this.prop(rnd() < 0.5 ? 'jug_01' : 'wicker_basket_01', a, y2, b, rnd() * 6, 1.6);
     } else if (r < 0.7) {
       this.prop('old_military_crate', a, y, b, ry, 1);
-      this.prop('old_military_crate', a, y + 0.3, b, ry + (rnd() - 0.5) * 0.3, 1);
-      if (rnd() < 0.5) this.prop('wooden_bucket_01', a + 0.5, y + 0.6, b, rnd() * 6, 1);
+      const y2 = y + H('old_military_crate', 1);
+      this.prop('old_military_crate', a, y2, b, ry + (rnd() - 0.5) * 0.3, 1);
+      if (rnd() < 0.5) this.prop('wooden_bucket_01', a, y2 + H('old_military_crate', 1), b, rnd() * 6, 1);
     } else {
       this.prop('wooden_crate_01', a, y, b, ry, 1.8);
-      this.prop('wooden_crate_01', a + 0.1, y + 0.61, b + 0.05, ry + (rnd() - 0.5) * 0.4, 1.8);
+      this.prop('wooden_crate_01', a + 0.1, y + H('wooden_crate_01', 1.8), b + 0.05, ry + (rnd() - 0.5) * 0.4, 1.8);
       this.prop('wooden_bucket_01', a + 1.1 * Math.cos(ry), y, b - 1.1 * Math.sin(ry), rnd() * 6, 1);
     }
   }
@@ -286,11 +290,16 @@ export class Town {
   // An oriented box that walkers can't pass through. `roof` (optional) describes what's on top so it can be
   // climbed and walked on: { y: eave height, rise, ridge: 'x' | 'z' | 'hip', o: overhang, w, d, dz } or
   // { y: floor height, flat: true, lip: parapet height }. Without one the top is a flat surface at `height`.
+  // a box whose top is at an absolute height (a wall, a bastion, a ruin's broken stump)
+  colliderTo(a, b, hw, hd, rot, topY) { return this.addCollider(a, b, hw, hd, rot, topY - this.groundAt(a, b)); }
+
   addCollider(a, b, hw, hd, rot = 0, height = 12, roof = null) {
     const w = this.toWorld(a, b);
     const ang = this.dir + rot; // local axes rotate with town
-    const ground = Math.max(this.level, this.terrain.height(w.x, w.z));
+    // (from the ground the builders stand things on: the terrain itself, flattened where the town levelled it)
+    const ground = this.terrain.height(w.x, w.z);
     const c = { x: w.x, z: w.z, hw, hd, cos: Math.cos(ang), sin: Math.sin(ang), top: ground + height };
+    if (globalThis.__colliderDebug) c.src = new Error().stack.split('\n')[2]?.trim();
     if (roof) {
       c.roof = roof.flat
         ? { flat: true, y: roof.y, lip: roof.lip || 0 }

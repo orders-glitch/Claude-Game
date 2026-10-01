@@ -65,12 +65,30 @@ class Props {
 
   has(name) { return !!this.parts[name]; }
 
+  // a model's height at a given scale (for stacking one thing on another without them interpenetrating)
+  height(name, scale = 1) {
+    const parts = this.parts[name];
+    if (!parts) return 0;
+    if (!this._h) this._h = {};
+    if (this._h[name] === undefined) {
+      const box = new THREE.Box3();
+      for (const p of parts) { p.geometry.computeBoundingBox(); box.union(p.geometry.boundingBox); }
+      this._h[name] = { top: box.max.y, bottom: box.min.y };
+    }
+    return (this._h[name].top - Math.min(0, this._h[name].bottom)) * scale;
+  }
+
   // queue an instance; `cluster` groups instances that are culled together (a town, a camp)
   place(name, matrix, cluster = 'world') {
     if (!this.parts[name]) return false;
     if (!this.queue.has(cluster)) this.queue.set(cluster, new Map());
     const c = this.queue.get(cluster);
     if (!c.has(name)) c.set(name, []);
+    // never the same thing twice in the same spot (two builders dressing one corner)
+    const e = matrix.elements, key = `${cluster}|${name}|${Math.round(e[12] * 10)},${Math.round(e[13] * 10)},${Math.round(e[14] * 10)}`;
+    if (!this.placed) this.placed = new Set();
+    if (this.placed.has(key)) return true;
+    this.placed.add(key);
     c.get(name).push(matrix);
     return true;
   }

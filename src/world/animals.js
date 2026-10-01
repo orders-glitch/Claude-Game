@@ -14,6 +14,7 @@ const SPECIES = {
   rooster: { file: 'rooster.glb', size: 0.42, walk: /chikWalk/, idle: /eat/, speed: 0.7 },
   pig: { file: 'pig.glb', size: 0.72, walk: /Take 001/, idle: /Take 001/, speed: 0.6 },
   cow: { file: 'cow.glb', size: 1.4, idle: /idle1/, speed: 0 },
+  // (no dogs in the towns: the only model to hand looked like a toy)
   dog: { file: 'dog.glb', size: 0.55, walk: /walking_cycle/, idle: /standing_idle|sitting_idle/, speed: 1.3 },
   pelican: { file: 'pelican.glb', len: 1.15, idle: /idle_A/, speed: 0 },
   seagull: { file: 'seagull.glb', len: 0.55, fly: /Armature|Action/ },
@@ -25,10 +26,10 @@ const _v = new THREE.Vector3();
 
 // who roams each town's streets (counts at high quality)
 const TOWN_ANIMALS = {
-  havana: { rooster: 12, dog: 5, pig: 3, goat: 3, donkey: 3, cow: 2 },
-  portroyal: { rooster: 9, dog: 5, goat: 4, pig: 3, donkey: 2 },
-  nassau: { pig: 8, goat: 6, rooster: 10, dog: 5, donkey: 1 },
-  tortuga: { pig: 6, dog: 7, rooster: 8, goat: 4, cow: 2 },
+  havana: { rooster: 14, pig: 4, goat: 4, donkey: 3, cow: 2 },
+  portroyal: { rooster: 11, goat: 5, pig: 4, donkey: 2 },
+  nassau: { pig: 9, goat: 7, rooster: 12, donkey: 1 },
+  tortuga: { pig: 8, rooster: 10, goat: 6, cow: 2 },
 };
 const CARTS = { havana: 6, portroyal: 4, nassau: 1, tortuga: 2 };
 

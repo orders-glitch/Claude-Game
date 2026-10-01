@@ -18,6 +18,21 @@ export class Harbour {
   constructor(scene, towns, terrain) {
     this.ships = [];
     this.blockers = [];
+    // careened sloops: hove down on their beams on the beach, bottoms exposed for scraping and paying with tar
+    for (const t of towns) for (const k of t.careened || []) {
+      const cls = SHIP_CLASSES.sloop;
+      if (!shipLibrary.has(cls.id)) continue;
+      const m = shipLibrary.create(cls.id, cls.length, '#cbbd9c');
+      if (m.sails) m.sails.visible = false; // her canvas is ashore
+      const w = t.toWorld(k.a, k.b);
+      const heading = t.dir + k.rot;
+      m.group.rotation.order = 'YXZ';
+      m.group.rotation.set(0.04, heading, 1.0); // over on her beam ends
+      m.group.position.set(w.x, k.y - m.cfg.draft * m.scale * 0.35, w.z);
+      scene.add(m.group);
+      // the hull lying over: its breadth across the beach, its length along it
+      t.addCollider(k.a, k.b, cls.beam * 0.55, cls.length * 0.42, k.rot, 3.2);
+    }
     for (const t of towns) {
       const kinds = BY_NATION[t.port.nation] || BY_NATION.britain;
       let placed = 0;

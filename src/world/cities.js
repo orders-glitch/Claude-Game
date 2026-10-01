@@ -372,19 +372,31 @@ export class CityKit {
     const wallH = o.wallH ?? 7, col = o.col || '#c2b69b', bucket = o.bucket || 'stone';
     this.claim(a, b, size + 5, size + 5, r);
     const half = size;
+    // a fort run out over the water's edge stands on a stone platform (its terreplein), not on the sea
+    let wet = false;
+    for (const [u, v] of [[0, 0], [-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]]) { const p = P(u * half, v * half); if (t.groundAt(p.a, p.b) < Math.max(y - 0.6, 0.4)) wet = true; }
+    if (wet) {
+      const fy = Math.max(y - 0.4, 0.8); // (above the sea, wherever its walls are founded)
+      B.box(o.bucket || 'stone', half * 2 + 1, fy - y + 6, half * 2 + 1, T(a, (fy + y - 6) / 2, b, r), o.floorCol || '#9a917c');
+      const w = t.toWorld(a, b);
+      t.platforms.push({ x: w.x, z: w.z, hw: half + 0.5, hd: half + 0.5, cos: Math.cos(t.dir + r), sin: Math.sin(t.dir + r), y: fy });
+      t.shipBlockers?.push({ x: w.x, z: w.z, hw: half + 2, hd: half + 2, cos: Math.cos(t.dir + r), sin: Math.sin(t.dir + r) });
+    }
     for (const [u, v, len, along] of [[0, -half, half * 2, true], [0, half, half * 2, true], [-half, 0, half * 2, false], [half, 0, half * 2, false]]) {
       const segs = o.ruined ? 5 : 1;
       for (let k = 0; k < segs; k++) {
         if (o.ruined && rnd() < 0.2) continue;
         if (!o.ruined && o.gate && v > 0 && along) { // gate in the landward curtain
-          for (const g of [-1, 1]) { const p = P(g * (half / 2 + 1.5), v); B.box(bucket, half - 3, wallH, 2.6, T(p.a, y + wallH / 2 - 0.5, p.b, r), col); t.addCollider(p.a, p.b, (half - 3) / 2, 1.4, r, wallH); }
+          for (const g of [-1, 1]) { const p = P(g * (half / 2 + 1.5), v); B.box(bucket, half - 3, wallH, 2.6, T(p.a, y + wallH / 2 - 0.5, p.b, r), col); t.colliderTo(p.a, p.b, (half - 3) / 2, 1.4, r, y + wallH - 0.5); }
           break;
         }
         const l = len / segs, off = -len / 2 + l * (k + 0.5);
         const h = o.ruined ? wallH * (0.45 + rnd() * 0.55) : wallH;
         const p = P(u + (along ? off : 0), v + (along ? 0 : off));
         B.box(bucket, along ? l : 2.6, h, along ? 2.6 : l, T(p.a, y + h / 2 - 0.5, p.b, r), col);
-        t.addCollider(p.a, p.b, along ? l / 2 : 1.4, along ? 1.4 : l / 2, r, h);
+        // to the wall's real top (its parapet cap, if it has one), whatever the ground under it
+        const capped = !o.ruined && !(v > 0 && along);
+        t.colliderTo(p.a, p.b, along ? l / 2 : 1.4, along ? 1.4 : l / 2, r, y + h - 0.5 + (capped ? 0.5 : 0));
       }
     }
     // parapet cap
@@ -394,7 +406,7 @@ export class CityKit {
       const p = P(cu * half, cv * half);
       const bh = o.ruined ? wallH * (0.5 + rnd() * 0.4) : wallH + 0.6;
       B.box(bucket, 8, bh, 8, T(p.a, y + bh / 2 - 0.5, p.b, r + Math.PI / 4), col);
-      t.addCollider(p.a, p.b, 4.2, 4.2, r + Math.PI / 4, bh);
+      t.colliderTo(p.a, p.b, 4.2, 4.2, r + Math.PI / 4, y + bh - 0.5);
       if (o.ruined && rnd() < 0.5) continue;
       const g = P(cu * (half + 1.6), cv * half - 2.2);
       if (!t.prop('cannon_01', g.a, y + bh - 0.1, g.b, r + CANNON_YAW + (cv > 0 ? Math.PI : 0), 1.35)) B.cyl('metal', 0.22, 0.34, 3, 8, T(g.a, y + bh + 0.6, g.b, r, 1, 1, 1, Math.PI / 2), '#1c1c1e');
@@ -408,9 +420,10 @@ export class CityKit {
     // seaward gun line
     for (let k = -2; k <= 2; k++) {
       if (o.ruined && rnd() < 0.6) continue;
-      const g = P(k * (half / 3), -half - 1.2);
-      if (!t.prop('cannon_01', g.a, y + wallH - 0.5, g.b + 0, r + CANNON_YAW, 1.25)) B.cyl('metal', 0.2, 0.3, 2.6, 8, T(g.a, y + wallH + 0.2, g.b, r, 1, 1, 1, Math.PI / 2), '#1c1c1e');
-      t.cannons.push(t.toWorld(g.a, g.b, y + wallH + 0.2));
+      // on the rampart, standing on the parapet's walk with the muzzle over the edge (not hung off the face)
+      const g = P(k * (half / 3), -half + 0.2);
+      if (!t.prop('cannon_01', g.a, y + wallH, g.b + 0, r + CANNON_YAW, 1.25)) B.cyl('metal', 0.2, 0.3, 2.6, 8, T(g.a, y + wallH + 0.7, g.b, r, 1, 1, 1, Math.PI / 2), '#1c1c1e');
+      t.cannons.push(t.toWorld(g.a, g.b, y + wallH + 0.7));
     }
     if (o.moat) {
       const m = half + 9;
@@ -450,19 +463,19 @@ export class CityKit {
     const r = this.rot(bearing);
     const c = Math.cos(r), s = Math.sin(r);
     const y = t.groundAt(a, b);
+    if (y < 0.4) return; // its site is under water: no battery there
     const col = o.col || '#cfc8b6', bucket = o.bucket || 'stone';
     const P = (u, v) => ({ a: a + u * c + v * s, b: b - u * s + v * c });
+    // every gun and merlon stands on the ground beneath it (a battery may run along a slope)
     for (let k = 0; k < guns; k++) {
       const u = -len / 2 + (k + 0.5) * (len / guns);
-      const g = P(u, 0.8);
-      if (!t.prop('cannon_01', g.a, y + 0.1, g.b, r + CANNON_YAW, 1.25)) B.cyl('metal', 0.2, 0.3, 2.6, 8, T(g.a, y + 0.8, g.b, r, 1, 1, 1, Math.PI / 2), '#1c1c1e');
-      t.cannons.push(t.toWorld(g.a, g.b, y + 1));
-      const m = P(u + len / guns / 2, -1);
-      if (k < guns - 1) B.box(bucket, len / guns - 1.6, 1.6, 2, T(m.a, y + 0.5, m.b, r), col); // merlon
+      const g = P(u, 0.8), gy = t.groundAt(g.a, g.b);
+      if (!t.prop('cannon_01', g.a, gy + 0.1, g.b, r + CANNON_YAW, 1.25)) B.cyl('metal', 0.2, 0.3, 2.6, 8, T(g.a, gy + 0.8, g.b, r, 1, 1, 1, Math.PI / 2), '#1c1c1e');
+      t.cannons.push(t.toWorld(g.a, g.b, gy + 1));
+      const m = P(u + len / guns / 2, -1), my = t.groundAt(m.a, m.b);
+      if (k < guns - 1) { B.box(bucket, len / guns - 1.6, 2.2, 2, T(m.a, my + 0.2, m.b, r), col); t.colliderTo(m.a, m.b, (len / guns - 1.6) / 2, 1, r, my + 1.3); } // merlon
     }
-    for (const e of [-1, 1]) { const m = P(e * (len / 2), -1); B.box(bucket, 1.6, 1.6, 2, T(m.a, y + 0.5, m.b, r), col); }
-    const p = P(0, -1);
-    t.addCollider(p.a, p.b, len / 2, 1.1, r, 1.6);
+    for (const e of [-1, 1]) { const m = P(e * (len / 2), -1), my = t.groundAt(m.a, m.b); B.box(bucket, 1.6, 2.2, 2, T(m.a, my + 0.2, m.b, r), col); t.colliderTo(m.a, m.b, 0.8, 1, r, my + 1.3); }
     this.claim(a, b, len / 2 + 1, 3, r);
   }
 
@@ -494,7 +507,7 @@ export class CityKit {
       B.add('stone', new THREE.CylinderGeometry(9, 10, H + 2, 5), T(p.a, y + H / 2 - 1, p.b, k * 0.7), col);
       t.addCollider(p.a, p.b, 7, 7, 0, H);
       this.claim(p.a, p.b, 10, 10, 0);
-      if (!t.prop('cannon_01', p.a, y + H + 0.9, p.b, k * 0.7, 1.3)) B.cyl('metal', 0.2, 0.3, 2.6, 8, T(p.a, y + H + 1.6, p.b, 0, 1, 1, 1, Math.PI / 2), '#1c1c1e');
+      if (!t.prop('cannon_01', p.a, y + H + 0.05, p.b, k * 0.7, 1.3)) B.cyl('metal', 0.2, 0.3, 2.6, 8, T(p.a, y + H + 0.8, p.b, 0, 1, 1, 1, Math.PI / 2), '#1c1c1e'); // (on the bastion's top)
     }
     // gate towers
     for (const g of gates) {
@@ -552,8 +565,10 @@ export class CityKit {
       if (rnd() < 0.5) {
         const m = 1 + Math.floor(rnd() * 4);
         for (let q = 0; q < m; q++) t.barrel(this.B, a + (q % 2) * 1.1, y, b + Math.floor(q / 2) * 1.1);
-        t.addCollider(a + 0.5, b + 0.5, 1.3, 1.3, 0, 1.2);
-      } else { t.cargo(a, y, b); t.addCollider(a, b, 1, 1, 0, 1.4); }
+        // a box round just the barrels there are (one barrel, a pair, or a square of four)
+        const ex = m > 1 ? 1.1 : 0, ez = m > 2 ? 1.1 : 0;
+        t.addCollider(a + ex / 2, b + ez / 2, ex / 2 + 0.45, ez / 2 + 0.45, 0, 1.2);
+      } else { t.cargo(a, y, b); t.addCollider(a, b, 0.7, 0.7, 0, 1.3); }
       this.claim(a, b, 1.3, 1.3, 0);
       if (rnd() < 0.35) t.spot('work', a + 1.8, b, rnd() * 6);
     }
@@ -790,6 +805,7 @@ function cayona(K) {
 function roofedRuin(B, t, a, b, rot, w, d) {
   // a sailcloth roof thrown over the best-kept ruin: the pirates' council house
   B.add('cloth', gableRoofGeometry(w, d, 2.2, 0.3), T(a, t.groundAt(a, b) + 3.8, b, rot), '#cfc1a2');
+  t.addCollider(a, b, w / 2 + 0.3, d / 2 + 0.3, rot, 6, { y: t.groundAt(a, b) + 3.8, rise: 2.2, ridge: 'x', o: 0.3, w, d }); // the canvas, to walk on
 }
 
 function tavernShack(B, t, rnd, a, b, rot, w, d) {
@@ -807,13 +823,11 @@ function tavernShack(B, t, rnd, a, b, rot, w, d) {
 function careening(B, t, rnd, a, b, rot, w, d) {
   // a sloop hove down on the beach, tar kettle smoking, spars and planks about
   const y = t.groundAt(a, b);
-  const hull = new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-  B.add('wood', hull, T(a, y + 1.2, b, rot + Math.PI / 2, 2.6, 2.4, 9, 0, 1.0), '#3a2c22');
-  B.cyl('wood', 0.16, 0.2, 13, 6, T(a + Math.cos(rot) * 2, y + 3.4, b - Math.sin(rot) * 2, rot, 1, 1, 1, 0, 1.25), '#5a4632');
+  // the sloop herself (the real model, laid over on her side) is put here by the harbour: see Harbour
+  (t.careened ||= []).push({ a, b, rot: rot + Math.PI / 2, y });
   for (let k = 0; k < 6; k++) B.box('wood', 0.3, 0.25, 5, T(a + Math.cos(rot) * (w / 2 - 1) + k * 0.35, y + 0.15 + (k % 2) * 0.25, b + 3, rot + 0.1), '#9a7a52');
   B.cyl('metal', 0.55, 0.45, 0.7, 10, T(a - Math.cos(rot) * 4, y + 0.5, b + 2), '#1c1c1c');
   t.fires.push(t.toWorld(a - Math.cos(rot) * 4, b + 2, y + 0.9));
-  t.addCollider(a, b, 2.5, 5, rot + Math.PI / 2, 3);
   t.spot('work', a + Math.cos(rot) * 3.5, b - Math.sin(rot) * 3.5, rot + Math.PI / 2);
   t.spot('work', a - Math.cos(rot) * 3, b + Math.sin(rot) * 3 + 1, rot - Math.PI / 2);
 }
@@ -924,7 +938,7 @@ function laRoche(K, x, z) {
   const { a, b } = K.L(x, z);
   const y = t.groundAt(a, b);
   B.add('stone', new THREE.DodecahedronGeometry(6, 0), T(a, y + 3, b, 0.4, 1, 1.2, 1), '#b8ae98');
-  t.addCollider(a, b, 5.5, 5.5, 0, 9);
+  t.addCollider(a, b, 5, 5, 0, 10);
   for (let k = 0; k < 14; k++) {
     const ang = (k / 14) * Math.PI * 2, rr = 16 + rnd() * 3;
     if (rnd() < 0.3) continue;
