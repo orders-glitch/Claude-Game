@@ -740,7 +740,8 @@ export class NPC extends Walker {
     if (this.flying) { this.animState.speed = 0; this.animate(dt); return; }
     if (this.surrendered) { this.animState.activity = 'sit'; this.physics(dt, 0, 0); this.animate(dt); return; }
     // in a boarding fight each side goes for the nearest of the other; otherwise it's the player or no one
-    const player = this.side ? g.boarding?.foeFor(this) : g.walker;
+    // ashore, your own men go for whoever is hostile to you, and hostile townsfolk for you or the nearest of them
+    const player = this.side ? (g.boarding ? g.boarding.foeFor(this) : g.party?.foeFor(this)) : (g.party?.men.length && (this.hostile || g.isWalkerHostile(this)) ? g.party.victimFor(this) : g.walker);
     let wishX = 0, wishZ = 0, speed = 0;
     const toP = player && !player.dead ? player.pos.clone().sub(this.pos) : null;
     const dP = toP ? Math.hypot(toP.x, toP.z) : Infinity;
@@ -778,6 +779,17 @@ export class NPC extends Walker {
     } else if (this.fleeT > 0 || (this.kind === 'civilian' && g.combatNear && dP < 30)) {
       this.fleeT = Math.max(0, this.fleeT - dt);
       if (toP && dP < 40) { speed = 5; wishX = -toP.x / dP * speed; wishZ = -toP.z / dP * speed; this.yaw = Math.atan2(-wishX, -wishZ); }
+    } else if (this.partyMember && this.followGoal) {
+      // one of your shore party, keeping station on you
+      const d = this.followGoal.clone().sub(this.pos);
+      const dl = Math.hypot(d.x, d.z);
+      if (dl > 1.2) {
+        speed = this.followRun ? (dl > 25 ? 7.4 : 5.6) : Math.min(2.4, dl);
+        wishX = d.x / dl * speed; wishZ = d.z / dl * speed;
+        this.yaw = dampAngle(this.yaw, Math.atan2(-d.x, -d.z), 8, dt);
+      } else if (g.walker) this.yaw = dampAngle(this.yaw, g.walker.yaw, 2, dt);
+    } else if (this.partyMember) {
+      // waiting
     } else if (this.spot) {
       // going to / doing an everyday activity
       const sp = this.spot;

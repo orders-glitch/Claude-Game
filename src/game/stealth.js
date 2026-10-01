@@ -280,7 +280,9 @@ export class Stealth {
     const darkF = 1 - night * (lit ? 0.2 : 0.6);
     const range = SIGHT * darkF * (up ? 0.7 : 1);
     const rate = wanted >= 3 ? 1.1 : wanted === 2 ? 0.65 : wanted === 1 ? 0.3 : 0;
-    const factor = (sprinting ? 1.8 : 1) * (blended ? 0.12 : 1) * (this.hidden ? 0 : 1);
+    // a gang of armed seamen at your heels draws the eye (leave them standing fast to slip in alone)
+    const gang = g.party?.conspicuous() || 0;
+    const factor = (sprinting ? 1.8 : 1) * (blended && !gang ? 0.12 : 1) * (this.hidden ? 0 : 1) * (1 + 0.15 * gang);
     this.status = this.hidden ? 'Hidden' : blended ? 'Blending in' : night > 0.5 && !lit && !up ? 'In the shadows' : '';
     this.lookT = (this.lookT || 0) - dt;
     const check = this.lookT <= 0;

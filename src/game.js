@@ -48,6 +48,7 @@ import { Wreckage } from './entities/wreckage.js';
 import { Stealth } from './game/stealth.js';
 import { Seaside } from './game/seaside.js';
 import { Fleet, makeCaptain } from './game/fleet.js';
+import { ShoreParty } from './game/party.js';
 import { refitStats, fitRefitVisuals, emptyRefit } from './game/refits.js';
 import { Missions } from './game/missions.js';
 import { UI } from './ui/ui.js';
@@ -175,6 +176,7 @@ export class Game {
     animals.init(scene, this);
     this.animals = animals;
     this.fleet = new Fleet(this);
+    this.party = new ShoreParty(this);
     this.shipBlockers.push(...this.harbour.blockers);
     // your ship lies in the roads off each port, clear of the piers, the shoals and the ships at anchor
     for (const t of this.townList) t.berth = this.roadsBerth(t);
@@ -522,7 +524,7 @@ export class Game {
 
   enterFoot(pos, town) {
     this.mode = 'foot';
-    this.ui.hint('[WASD] walk · hold [Shift] run, then sprint · [Space] jump, climb or vault · [C] let go / slide · [Left Click] cutlass · hold [Right Click] aim a pistol · [E] interact · [F] return to ship');
+    this.ui.hint('[WASD] walk · hold [Shift] run, then sprint · [Space] jump, climb or vault · [C] let go / slide · [Left Click] cutlass · hold [Right Click] aim a pistol · [E] interact · [T] your men: stand fast / follow · [F] return to ship');
     if (this.walker) this.walker.dispose();
     this.walker = new PlayerWalker(this, { x: pos.x, y: pos.y, z: pos.z, yaw: town ? town.dir + Math.PI : 0 });
     this.walker.camYaw = this.walker.yaw;
@@ -769,6 +771,7 @@ export class Game {
     // salvage-camp guards only exist while that objective is live
     if (this.keepNPCs && !(s.mission.id === 'm3' && s.mission.stage === 3)) this.despawnNPCs();
     // npcs
+    this.party.update(dt);
     for (const n of this.npcs) n.update(dt);
     this.combatT = Math.max(0, (this.combatT || 0) - dt);
     this.combatNear = this.combatT > 0;
@@ -1704,6 +1707,7 @@ export class Game {
     if (!this.seaside) this.seaside = new Seaside(this);
     if (this.seaside.rowing) this.seaside.row(dt, this.input);
     else if (!this.stealth.hidden) w.update(dt, this.input, this.camera);
+    if (this.input.hit('KeyT')) this.party.toggleStand();
     // over the side from the jolly boat
     if (this.seaside.rowing && this.input.hit('Space') && !this.seaside.boat.beached) this.seaside.disembark(true);
     w.updateCamera(this.camera, dt);
@@ -2084,6 +2088,7 @@ export class Game {
     const keep = [];
     for (const n of this.npcs) {
       if (keepSpecial && n.kind === 'soldier' && !n.town) { keep.push(n); continue; }
+      if (n.partyMember && this.mode === 'foot') { keep.push(n); continue; } // your shore party goes where you go
       n.dispose();
     }
     this.npcs = keep;
