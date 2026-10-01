@@ -5,7 +5,7 @@
 // across the chart, anchor with you in the roads, and fight what you fight. Orders by signal flag:
 //   [Z] engage my target · [X] form on me · [V] heave to and hold
 import * as THREE from 'three';
-import { SHIP_CLASSES } from './data.js';
+import { SHIP_CLASSES, GOODS } from './data.js';
 import { rand, randInt, pick, clamp } from '../core/noise.js';
 
 const FIRST = ['Edward', 'Charles', 'Samuel', 'Thomas', 'John', 'Richard', 'Paulsgrave', 'Christopher', 'Israel', 'Stede', 'Calico', 'Henry', 'Josiah', 'Nicholas', 'Olivier', 'Pierre', 'Jan', 'Diego'];
@@ -143,6 +143,9 @@ export class Fleet {
     ai.leader = p;
     // nobody's at sea while the commodore is ashore: anchor where you are
     if (g.mode !== 'sail') { ai.mode = 'hold'; return; }
+    // a beaten enemy to take: lay alongside her (no more firing into a ship that has struck)
+    const PT = s.prizeTarget;
+    if (PT && PT.alive && PT.struck && !PT.taken) { ai.mode = 'escort'; ai.target = null; ai.leader = PT; return; }
     const hpF = s.hull / s.hullMax;
     if (hpF < 0.22) { ai.mode = 'escort'; ai.target = null; if (!e.saidHurt) { e.saidHurt = true; g.ui.toast(`The ${e.name} signals: “Sore hurt, falling back on the commodore.”`, 'warn', 3500); } return; }
     if (hpF > 0.4) e.saidHurt = false;
@@ -167,6 +170,7 @@ export class Fleet {
   // ------------------------------------------------------------------ per frame
   update(dt) {
     const g = this.g;
+    if (g.mode === 'sail') this.checkPrizes(dt);
     for (const [id, s] of this.ships) {
       const e = this.list.find((x) => x.id === id);
       if (!e) { this.ships.delete(id); continue; }
@@ -185,6 +189,55 @@ export class Fleet {
       if (ashore !== !!s.anchored) { s.anchored = ashore; if (ashore) s.sailTarget = 0; }
       if (s.flagKind !== g.playerShip?.flagKind && g.playerShip) s.setVisibleFlag?.(g.playerShip.flagKind);
     }
+  }
+
+  // Shares by the articles: when a consort's enemy strikes, she closes, boards and takes her prize; the plunder
+  // is shared out (the commodore's share comes to you) and the prize is sent into Nassau to be condemned and
+  // sold, your share of the sale following in a few days.
+  COMMODORE_SHARE = 0.25;
+
+  checkPrizes(dt) {
+    const g = this.g;
+    for (const [id, s] of this.ships) {
+      if (!s.alive) continue;
+      const e = this.list.find((x) => x.id === id);
+      // her own target, or any beaten enemy she has been fighting close by
+      let T = s.ai.target && s.ai.target.struck ? s.ai.target : null;
+      if (!T) for (const o of g.ships) if (o.struck && o.alive && !o.taken && (o.aggro.has(s.id) || o.lastHitBy === s) && o.position.distanceTo(s.position) < 500) { T = o; break; }
+      if (!T || !T.alive || T.taken || T.sinking || g.boarding?.enemy === T) { s.captureT = 0; s.prizeTarget = null; continue; }
+      s.prizeTarget = T; // (she lays herself alongside: see decide)
+      const d = T.position.distanceTo(s.position);
+      if (d > 160) { s.captureT = 0; continue; }
+      s.captureT = (s.captureT || 0) + dt;
+      if (s.captureT > 8) this.consortTakes(s, e, T);
+    }
+  }
+
+  consortTakes(s, e, T) {
+    const g = this.g, st = g.state;
+    T.taken = true;
+    let cargo = 0;
+    for (const k in T.cargo) cargo += (T.cargo[k] || 0) * (GOODS[k]?.base || 10);
+    const plunder = Math.round(T.gold + randInt(20, 80) * Math.ceil(T.cls.guns / 4) + cargo * 0.5);
+    const share = Math.round(plunder * this.COMMODORE_SHARE);
+    st.gold += share;
+    st.stats.captured = (st.stats.captured || 0) + 1;
+    st.stats.plunder = (st.stats.plunder || 0) + share;
+    st.renown = (st.renown || 0) + 1;
+    // her prize crew takes the prize in; your share of the sale follows
+    const prizeCrew = Math.min(Math.max(3, T.cls.crewMin), Math.max(0, s.crew - s.cls.crewMin - 2));
+    const saleShare = Math.round(T.cls.price * 0.35 * clamp(T.hull / T.hullMax, 0.3, 1) * this.COMMODORE_SHARE);
+    if (prizeCrew >= 3) {
+      s.crew -= prizeCrew; e.crew = s.crew;
+      (st.prizesAway ||= []).push({ name: T.name, cls: T.cls.name, value: saleShare, crew: 0, consortCrew: { id: e.id, n: prizeCrew }, due: st.day * 24 + st.hours + 36 + Math.random() * 36, port: 'Nassau', share: true });
+    }
+    g.audio.coins();
+    g.ui.toast(`The ${e.name} takes the ${T.name}! Your commodore's share of the plunder: ${share} pieces of eight.${prizeCrew >= 3 ? ` Captain ${e.captain.name} sends her into Nassau to be sold (your share about ${saleShare}).` : ''}`, 'good', 6000);
+    g.removeShip(T);
+    s.captureT = 0; s.prizeTarget = null;
+    s.ai.target = null; s.ai.mode = 'escort'; s.ai.leader = g.playerShip;
+    this.targets.delete(e.id);
+    if (e.order === 'engage') e.order = 'follow';
   }
 
   // a long passage: the squadron arrives with you

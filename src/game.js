@@ -365,6 +365,7 @@ export class Game {
     // restore bounty ships
     for (const c of s.contracts) {
       if (c.type === 'bounty' && !c.target) c.target = this.spawnShip(c.cls, 'pirate', { role: 'pirate', name: c.shipName, x: c.marker.x, z: c.marker.z, heading: rand(-3, 3), mission: true, patrol: true, aggroPlayer: true });
+      if (c.type === 'smuggle' && !c.target && c.marker) { c.target = this.missions.postGuard(c); if (c.spotted) c.target.aggro.add(PLAYER_ID); }
     }
     this.ui.refreshObjective();
     this.input.lock();
@@ -1124,6 +1125,14 @@ export class Game {
         return { text: `[F] Dock at ${t.port.name}`, act: () => this.dock(t) };
       }
     }
+    // a smuggling run: hove to off the cove, send the goods ashore in the boats
+    for (const c of this.state.contracts) {
+      if (c.type !== 'smuggle' || !c.marker) continue;
+      if (Math.hypot(c.marker.x - p.position.x, c.marker.z - p.position.z) < 220) {
+        if (p.speed > 5) return { text: 'Shorten sail [S] off the cove to land the contraband', act: () => {} };
+        return { text: `[F] Run the ${GOODS[c.good].name} ashore`, act: () => this.missions.runAshore(c) };
+      }
+    }
     // the jolly boat: row yourself to any beach or cove, or go over the side for a swim
     if (p.speed < 3 && this.seaside) return { text: '[F] Lower the jolly boat', act: () => this.seaside.lowerBoat() };
     return null;
@@ -1355,7 +1364,8 @@ export class Game {
       const p = this.playerShip, room = p ? (p.crewMax ?? p.cls.crewMax) - p.crew : 0;
       const back = Math.min(pz.crew, Math.max(0, room));
       if (p) { p.crew += back; s.ship.crew = p.crew; }
-      this.ui.toast(`Word from ${pz.port}: the ${pz.name} (${pz.cls}) has been sold for ${pz.value} pieces of eight.${back ? ` Her prize crew of ${back} rejoins you.` : ''}`, 'good', 6000);
+      if (pz.consortCrew) { const e = this.fleet.list.find((x) => x.id === pz.consortCrew.id); if (e) { e.crew += pz.consortCrew.n; const sh = this.fleet.ships.get(e.id); if (sh) sh.crew = e.crew; } }
+      this.ui.toast(pz.share ? `Word from ${pz.port}: the ${pz.name} (${pz.cls}), taken by your squadron, has been sold; your share is ${pz.value} pieces of eight.` : `Word from ${pz.port}: the ${pz.name} (${pz.cls}) has been sold for ${pz.value} pieces of eight.${back ? ` Her prize crew of ${back} rejoins you.` : ''}`, 'good', 6000);
       this.audio.coins();
     }
   }

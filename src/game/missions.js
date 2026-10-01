@@ -255,6 +255,7 @@ export class Missions {
   }
 
   update(dt) {
+    this.watchSmugglers();
     const st = this.stage;
     if (st?.check && st.check()) this.advance();
     const w = this.game.state.waypoint;
@@ -283,6 +284,68 @@ export class Missions {
     g.audio.coins();
     g.ui.toast(`Contract complete: ${c.title}  +${c.reward} ⛁`, 'good');
     g.ui.refreshObjective();
+  }
+
+  // A quiet cove for a run: a beach a few miles along the coast from the port, with an anchorage off it
+  findCove(portId) {
+    const g = this.game, T = g.terrain, port = PORTS.find((p) => p.id === portId);
+    const [px, pz] = port.coast;
+    for (let k = 0; k < 60; k++) {
+      const a = Math.random() * Math.PI * 2, r = 1300 + Math.random() * 1600;
+      const beach = T.findLanding(px + Math.cos(a) * r, pz + Math.sin(a) * r, 250);
+      if (!beach || Math.hypot(beach.x - px, beach.z - pz) < 1000) continue;
+      for (let j = 0; j < 24; j++) {
+        const b = (j / 24) * Math.PI * 2, d = 140 + (j % 3) * 60;
+        const x = beach.x + Math.cos(b) * d, z = beach.z + Math.sin(b) * d;
+        if (T.height(x, z) < -6) return { x, z, beach };
+      }
+    }
+    return null;
+  }
+
+  // the revenue cruiser on that coast, beating up and down off the cove
+  postGuard(c) {
+    const g = this.game;
+    const names = { spain: 'Guarda Costa', britain: 'Customs sloop Swift', france: 'Garde-côte' };
+    const a = Math.random() * Math.PI * 2;
+    const ship = g.spawnShip(Math.random() < 0.6 ? 'sloop' : 'brigantine', c.nation, { role: 'navy', name: names[c.nation] || 'Revenue cutter', x: c.marker.x + Math.cos(a) * 900, z: c.marker.z + Math.sin(a) * 900, heading: rand(-3, 3), mission: true, patrol: true, patrolR: 1100 });
+    ship.ai.home = new THREE.Vector3(c.marker.x, 0, c.marker.z);
+    ship.revenue = true;
+    return ship;
+  }
+
+  // the revenue men watch for you: seen with the goods aboard (and you will be, by day, under lanterns, close
+  // in), they give chase and the nation's officers hear of it
+  watchSmugglers() {
+    const g = this.game, p = g.playerShip;
+    if (!p || g.mode !== 'sail') return;
+    for (const c of g.state.contracts) {
+      if (c.type !== 'smuggle' || !c.target || !c.target.alive || c.spotted) continue;
+      if ((g.state.ship.cargo[c.good] || 0) < 1) continue;
+      const G = c.target, d = G.position.distanceTo(p.position);
+      if (d > G.ai.sightRange(g, p) * 0.6) continue;
+      c.spotted = true;
+      G.aggro.add(0);
+      g.state.addNotoriety(c.nation, 0.6);
+      g.ui.toast(`The ${G.name} has seen you, and she knows what you're about — she's making sail to run you down! Lose her, or fight.`, 'warn', 5000);
+    }
+  }
+
+  // landing the goods at the cove (from the sail context)
+  runAshore(c) {
+    const g = this.game;
+    if ((g.state.ship.cargo[c.good] || 0) < c.qty) return g.ui.toast(`You need ${c.qty} ${GOODS[c.good].name} to land — the buyer won't take short weight.`, 'warn');
+    g.transition(900, () => {
+      g.state.ship.cargo[c.good] -= c.qty;
+      g.state.advanceHours(2);
+      if (c.target) { c.target.mission = false; c.target.despawnT = 60; }
+      g.state.contracts = g.state.contracts.filter((x) => x !== c);
+      g.state.gold += c.reward;
+      g.state.renown += 2;
+      g.audio.coins();
+      g.ui.toast(`Your boats run the ${GOODS[c.good].name} through the surf to the waiting mules. The buyer pays ${c.reward} pieces of eight in silver.`, 'good', 5500);
+      g.ui.refreshObjective();
+    });
   }
 
   // --- tavern offerings
@@ -315,6 +378,21 @@ export class Missions {
       text: `Deliver ${qty} ${GOODS[good].name} to ${to.name}`,
       marker: { x: to.coast[0], z: to.coast[1] }, reward: Math.round(qty * GOODS[good].base * 0.9 + 150), deadline: g.state.day + 8, provides: true,
     });
+    // smuggling: contraband run ashore at a cove under the noses of a foreign port's revenue men. The goods are
+    // dear there (forbidden by the trade laws, or taxed out of reach) and the pay is good — if the guarda costa
+    // doesn't catch you with them aboard
+    const foreign = PORTS.filter((p) => p.id !== portId && p.nation !== 'pirate');
+    if (foreign.length) {
+      const dest = foreign[Math.floor(r(11) * foreign.length)];
+      const sgood = dest.demands[Math.floor(r(12) * dest.demands.length)];
+      const sqty = 12 + Math.floor(r(13) * 22);
+      const law = dest.nation === 'spain' ? 'the guarda costa' : dest.nation === 'britain' ? 'the Customs sloop' : 'the garde-côte';
+      offers.push({
+        type: 'smuggle', title: `Run ${sqty} ${GOODS[sgood].name} ashore near ${dest.name}`, good: sgood, qty: sqty, to: dest.id, nation: dest.nation,
+        text: `Contraband: land ${sqty} ${GOODS[sgood].name} at a cove near ${dest.name}, where a buyer waits on the beach. ${law[0].toUpperCase() + law.slice(1)} patrols those waters: don't be caught with it aboard`,
+        reward: Math.round(sqty * GOODS[sgood].base * 1.9 + 400), deadline: g.state.day + 10, provides: true,
+      });
+    }
     // treasure map
     const wild = ISLANDS.filter((i) => !PORTS.some((p) => p.island === i.id) && i.id !== 'florida' && i.rx < 1000);
     const isl = wild[Math.floor(r(9) * wild.length)];
@@ -335,12 +413,19 @@ export class Missions {
       return;
     }
     if (g.state.contracts.length >= 3) return g.ui.toast('You already have three contracts.', 'warn');
-    if (c.type === 'delivery' && c.provides) {
+    if ((c.type === 'delivery' || c.type === 'smuggle') && c.provides) {
       const room = g.playerCargoRoom();
       if (room < c.qty) return g.ui.toast('Not enough room in the hold for the consignment.', 'warn');
       g.state.ship.cargo[c.good] = (g.state.ship.cargo[c.good] || 0) + c.qty;
     }
     const copy = { ...c };
+    if (c.type === 'smuggle') {
+      const cove = this.findCove(c.to);
+      if (!cove) { g.state.ship.cargo[c.good] -= c.qty; return g.ui.toast('No buyer can be found on that coast this week.', 'warn'); }
+      copy.marker = { x: cove.x, z: cove.z };
+      copy.beach = cove.beach;
+      copy.target = this.postGuard(copy);
+    }
     if (c.type === 'bounty') {
       const s = g.spawnShip(c.cls, 'pirate', { role: 'pirate', name: c.shipName, x: c.marker.x, z: c.marker.z, heading: rand(-3, 3), mission: true, patrol: true, aggroPlayer: true });
       copy.target = s;
