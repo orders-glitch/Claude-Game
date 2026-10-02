@@ -13,6 +13,7 @@ const NORTH_OF_NASSAU = G(-77.32, 25.42);
 export function buildStory(game) {
   const S = game.state;
   const nassau = () => game.towns.nassau;
+  const harbour = (t) => { const h = t.harbourPt || t.berth; return V(h.x, h.z); }; // (off the pier head, where you put in)
   return [
     {
       id: 'm1', title: 'A Sloop Called Ranger',
@@ -50,7 +51,7 @@ export function buildStory(game) {
             st.text = laden ? 'Sail back to Nassau with the plunder in your hold and dock in the harbour [F] to report to Hornigold'
               : 'Sail back to Nassau and dock in the harbour [F] to report to Hornigold';
           },
-          marker: () => nassau().berth && V(nassau().berth.x, nassau().berth.z), onEvent: (e) => e.type === 'dock' && e.port === 'nassau' },
+          marker: () => harbour(nassau()), onEvent: (e) => e.type === 'dock' && e.port === 'nassau' },
       ],
       reward: { gold: 300, renown: 4 },
       outro: ['Benjamin Hornigold', 'A clean job. Sell what you took to the fence — nobody in Nassau asks where a bolt of Dutch linen came from.'],
@@ -91,7 +92,7 @@ export function buildStory(game) {
             return false;
           },
         },
-        { text: 'Return the silver to Nassau', marker: () => V(nassau().berth.x, nassau().berth.z), onEvent: (e) => e.type === 'dock' && e.port === 'nassau' },
+        { text: 'Return the silver to Nassau', marker: () => harbour(nassau()), onEvent: (e) => e.type === 'dock' && e.port === 'nassau' },
       ],
       reward: { gold: 1500, renown: 10, notoriety: { spain: 1.5 } },
       outro: ['Benjamin Hornigold', 'Silver! Real Spanish silver! Every captain in Nassau will be talking of you tonight. But the Dons will not forgive this — keep a weather eye on any ship flying the Cross of Burgundy.'],
@@ -120,7 +121,7 @@ export function buildStory(game) {
           marker: () => game.missionTarget?.position,
           onEvent: (e) => (e.type === 'captured' || e.type === 'sunk') && e.ship === game.missionTarget,
         },
-        { text: 'Escape the Spanish and return to Nassau', marker: () => V(nassau().berth.x, nassau().berth.z), onEvent: (e) => e.type === 'dock' && e.port === 'nassau' },
+        { text: 'Escape the Spanish and return to Nassau', marker: () => harbour(nassau()), onEvent: (e) => e.type === 'dock' && e.port === 'nassau' },
       ],
       reward: { gold: 2500, renown: 20, notoriety: { spain: 2 } },
       outro: ['Benjamin Hornigold', 'The whole Main will know your name now. And that, my friend, is the trouble. A Royal Navy man-of-war has put in at Port Royal with orders to hang every pirate in Nassau.'],

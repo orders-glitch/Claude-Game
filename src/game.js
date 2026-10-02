@@ -179,7 +179,8 @@ export class Game {
     this.party = new ShoreParty(this);
     this.shipBlockers.push(...this.harbour.blockers);
     // your ship lies in the roads off each port, clear of the piers, the shoals and the ships at anchor
-    for (const t of this.townList) t.berth = this.roadsBerth(t);
+    // (and the harbour itself, off the pier head, is where you put in: anchor or heave to there and dock)
+    for (const t of this.townList) { t.harbourPt = t.berth || t.pierEnd || t.coast; t.berth = this.roadsBerth(t); }
     this.sky = new SkySystem(scene, renderer, q);
     this.weather = new Weather(scene);
     this.wind = this.weather.wind;
@@ -1117,11 +1118,10 @@ export class Game {
     }
     // docking
     for (const t of this.townList) {
-      const d = Math.hypot(t.berth.x - p.position.x, t.berth.z - p.position.z);
-      if (d < 150) {
+      if (this.nearHarbour(t, p.position)) {
         if (p.speed > 12) return { text: 'Shorten sail [S] to dock', act: () => {} };
-        const hostile = this.hostilesNear(700);
-        if (hostile) return { text: 'Enemy ships nearby — cannot dock', act: () => {} };
+        const foe = this.hostileNear(700);
+        if (foe) return { text: `Cannot dock with an enemy close by: the ${foe.name} (${Math.round(foe.position.distanceTo(p.position))} m) — drive her off or lose her`, act: () => {} };
         return { text: `[F] Dock at ${t.port.name}`, act: () => this.dock(t) };
       }
     }
@@ -1138,9 +1138,17 @@ export class Game {
     return null;
   }
 
-  hostilesNear(r) {
+  // close enough to put in at a port: in the harbour by the piers, or lying in the roads off it
+  nearHarbour(t, pos) {
+    const d = (q, r) => q && Math.hypot(q.x - pos.x, q.z - pos.z) < r;
+    return d(t.harbourPt, 260) || d(t.pierEnd, 260) || d(t.berth, 150);
+  }
+
+  hostilesNear(r) { return !!this.hostileNear(r); }
+
+  hostileNear(r) {
     const p = this.playerShip;
-    return this.ships.some((s) => s !== p && s.alive && this.isHostile(s, p) && s.role !== 'merchant' && s.position.distanceTo(p.position) < r);
+    return this.ships.find((s) => s !== p && s.alive && this.isHostile(s, p) && s.role !== 'merchant' && s.position.distanceTo(p.position) < r);
   }
 
   sinkCam(dt) {
