@@ -1,6 +1,7 @@
 // DOM user interface: HUD, minimap, sea chart, shops, dialogs and menus.
 import { PORTS, ISLANDS, GOODS, SHIP_CLASSES, NATIONS, AMMO, SALVAGE_CAMP, at } from '../game/data.js';
 import { WORLD_HALF } from '../world/terrain.js';
+import { lonLat, LON0, LAT0, GEO_SCALE } from '../game/geo.js';
 import { flagTexture, parchmentCanvas } from '../core/textures.js';
 import { clamp } from '../core/noise.js';
 import { saveSettings } from '../game/state.js';
@@ -106,6 +107,7 @@ export class UI {
     $('dlg-next').addEventListener('click', () => this.advanceDialog());
     $('chart-canvas').addEventListener('click', (e) => this.chartClick(e));
     $('chart-canvas').addEventListener('mousemove', (e) => this.chartHover(e));
+    this.initChartControls();
   }
 
   openModal(id) {
@@ -562,127 +564,291 @@ export class UI {
   }
 
   // ---------------------------------------------------------------- chart
+  // The sea chart zooms (wheel, or the + and − buttons) and pans (drag). The land is inked from the terrain once
+  // for the whole chart, and again in finer detail for the part in view whenever you stop zooming in on a coast.
+  // Names, rhumb lines, the graticule and every marker are drawn fresh at each view so they stay sharp.
   openChart() {
     const cv = $('chart-canvas');
     this.openModal('chart');
     const rect = cv.getBoundingClientRect();
     cv.width = Math.floor(rect.width * Math.min(2, devicePixelRatio));
     cv.height = Math.floor(rect.height * Math.min(2, devicePixelRatio));
-    if (!this.chartBase || this.chartBase.width !== cv.width) this.chartBase = this.renderChartBase(cv.width, cv.height);
+    if (!this.chartBase || this.chartBase.c.width !== cv.width || this.chartBase.c.height !== cv.height) {
+      this.chartPaper = parchmentCanvas(cv.width, cv.height);
+      const z = this.chartZ;
+      this.chartZ = { k: 1, cx: 0, cz: 0 };
+      this.chartBase = this.renderLand(cv.width, cv.height, this.chartView(cv.width, cv.height));
+      this.chartZ = z || this.chartZ;
+      this.chartDetail = null;
+    }
     this.drawChart();
+    this.scheduleChartDetail();
+  }
+
+  initChartControls() {
+    const cv = $('chart-canvas');
+    const toCanvas = (e) => { const r = cv.getBoundingClientRect(); return [((e.clientX - r.left) / r.width) * cv.width, ((e.clientY - r.top) / r.height) * cv.height]; };
+    cv.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this.zoomChart(Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0015)), ...toCanvas(e));
+    }, { passive: false });
+    cv.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      const [px, py] = toCanvas(e);
+      this.chartDrag = { px, py, moved: 0 };
+    });
+    window.addEventListener('mousemove', (e) => {
+      const d = this.chartDrag;
+      if (!d || this.top() !== 'chart') return;
+      const [px, py] = toCanvas(e);
+      const v = this.chartView(cv.width, cv.height);
+      d.moved += Math.hypot(px - d.px, py - d.py);
+      this.chartZ.cx -= (px - d.px) / v.s; this.chartZ.cz -= (py - d.py) / v.s;
+      d.px = px; d.py = py;
+      if (d.moved > 6) { cv.style.cursor = 'grabbing'; this.drawChart(); }
+    });
+    window.addEventListener('mouseup', () => {
+      const d = this.chartDrag;
+      if (!d) return;
+      cv.style.cursor = '';
+      this.chartDragged = d.moved > 6;
+      this.chartDrag = null;
+      if (this.chartDragged) this.scheduleChartDetail();
+    });
+    const wrap = cv.parentElement;
+    const bar = document.createElement('div');
+    bar.className = 'chart-zoom';
+    bar.innerHTML = '<button data-z="in" title="Zoom in">+</button><button data-z="out" title="Zoom out">−</button><button data-z="ship" title="Centre on your ship">⌖</button><button data-z="all" title="Whole chart">⤢</button>';
+    bar.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      e.stopPropagation();
+      const z = b.dataset.z;
+      if (z === 'in') this.zoomChart(1.6);
+      else if (z === 'out') this.zoomChart(1 / 1.6);
+      else if (z === 'ship') { const f = this.game.focus; this.chartZ.cx = f.x; this.chartZ.cz = f.z; if (this.chartZ.k < 3) this.chartZ.k = 4; this.drawChart(); this.scheduleChartDetail(); }
+      else { this.chartZ = { k: 1, cx: 0, cz: 0 }; this.chartDetail = null; this.drawChart(); }
+      this.game.audio.ui('click');
+    });
+    wrap.appendChild(bar);
+    window.addEventListener('keydown', (e) => {
+      if (this.top() !== 'chart') return;
+      if (e.key === '+' || e.key === '=') this.zoomChart(1.6);
+      else if (e.key === '-' || e.key === '_') this.zoomChart(1 / 1.6);
+    });
+  }
+
+  // zoom by a factor about a point on the canvas (the centre if none)
+  zoomChart(f, px, py) {
+    const cv = $('chart-canvas');
+    if (px === undefined) { px = cv.width / 2; py = cv.height / 2; }
+    const z = this.chartZ;
+    const before = this.chartView(cv.width, cv.height).toWorld(px, py);
+    z.k = clamp(z.k * f, 1, 16);
+    // keep the point under the cursor where it is
+    const v = this.chartView(cv.width, cv.height), after = v.toWorld(px, py);
+    z.cx += before[0] - after[0]; z.cz += before[1] - after[1];
+    this.drawChart();
+    this.scheduleChartDetail();
+  }
+
+  // once the view settles: ink the coasts in view again, from the true terrain, a strip at a time so the chart
+  // stays responsive (a newer view abandons the old work)
+  scheduleChartDetail() {
+    clearTimeout(this._chartDT);
+    const job = this._chartJob = {};
+    if (this.chartZ.k < 1.25) return;
+    this._chartDT = setTimeout(() => {
+      if (this.top() !== 'chart' || this.chartDrag) return;
+      const cv = $('chart-canvas');
+      const r = this.chartZ.k > 3 ? 0.75 : 0.5;
+      const w = Math.round(cv.width * r), h = Math.round(cv.height * r);
+      const v = this.chartView(cv.width, cv.height);
+      const sub = { toWorld: (px, py) => v.toWorld(px / r, py / r), s: v.s * r, ox: v.ox * r, oz: v.oz * r };
+      const t = this.game.terrain;
+      this.renderLand(w, h, sub, (x, z) => t.height(x, z), job, (L) => { if (this._chartJob === job && this.top() === 'chart') { this.chartDetail = L; this.drawChart(); } });
+    }, 200);
   }
 
   chartView(w, h) {
-    // world bounds shown on the chart
-    const x0 = -14800, x1 = 14800, z0 = -13200, z1 = 11600; // Florida to the Caribbean coast of Hispaniola
-    const sx = w / (x1 - x0), sz = h / (z1 - z0);
-    const s = Math.min(sx, sz);
-    const ox = (w - (x1 - x0) * s) / 2, oz = (h - (z1 - z0) * s) / 2;
-    return { toPx: (x, z) => [ox + (x - x0) * s, oz + (z - z0) * s], toWorld: (px, py) => [(px - ox) / s + x0, (py - oz) / s + z0], s };
+    // world bounds shown on the whole chart: Florida to the Caribbean coast of Hispaniola
+    const x0 = -14800, x1 = 14800, z0 = -13200, z1 = 11600;
+    const z = this.chartZ || (this.chartZ = { k: 1, cx: 0, cz: 0 });
+    const s = Math.min(w / (x1 - x0), h / (z1 - z0)) * z.k;
+    // keep the view on the chart
+    const hw = w / 2 / s, hh = h / 2 / s;
+    z.cx = x1 - x0 > hw * 2 ? clamp(z.cx, x0 + hw, x1 - hw) : (x0 + x1) / 2;
+    z.cz = z1 - z0 > hh * 2 ? clamp(z.cz, z0 + hh, z1 - hh) : (z0 + z1) / 2;
+    const ox = w / 2 - z.cx * s, oz = h / 2 - z.cz * s;
+    return { toPx: (x, zz) => [ox + x * s, oz + zz * s], toWorld: (px, py) => [(px - ox) / s, (py - oz) / s], s, ox, oz, k: z.k, w, h };
   }
 
-  renderChartBase(w, h) {
-    const c = parchmentCanvas(w, h);
+  // the land, as a layer to multiply over the paper: white sea, buff shallows, brown hills, inked coasts.
+  // With `job` and `done` it works through the heights in slices between frames and hands the layer over at the end.
+  renderLand(w, h, v, heightAt = (x, z) => this.game.terrain.quickHeight(x, z), job = null, done = null) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
     const ctx = c.getContext('2d');
-    const t = this.game.terrain;
-    const v = this.chartView(w, h);
-    // land from the heightmap
-    const img = ctx.getImageData(0, 0, w, h);
-    const step = 1;
-    for (let py = 0; py < h; py += step) {
-      for (let px = 0; px < w; px += step) {
-        const [x, z] = v.toWorld(px, py);
-        const hgt = t.quickHeight(x, z);
-        const k = (py * w + px) * 4;
-        if (hgt > 0.3) {
-          const f = clamp(hgt / 150, 0, 1);
-          img.data[k] *= 0.82 - f * 0.25; img.data[k + 1] *= 0.74 - f * 0.25; img.data[k + 2] *= 0.55 - f * 0.2;
-        } else if (hgt > -6) {
-          img.data[k] *= 0.9; img.data[k + 1] *= 0.95; img.data[k + 2] *= 0.92;
+    const H = new Float32Array(w * h);
+    const finish = () => {
+      const img = ctx.createImageData(w, h);
+      for (let py = 0; py < h; py++) {
+        for (let px = 0; px < w; px++) {
+          const i = py * w + px, k = i * 4, hgt = H[i];
+          let r = 255, gg = 255, b = 255;
+          if (hgt > 0.3) {
+            const f = clamp(hgt / 150, 0, 1);
+            r = 255 * (0.82 - f * 0.25); gg = 255 * (0.74 - f * 0.25); b = 255 * (0.55 - f * 0.2);
+            // the coast, inked
+            if ((px > 0 && H[i - 1] <= 0.3) || (px < w - 1 && H[i + 1] <= 0.3) || (py > 0 && H[i - w] <= 0.3) || (py < h - 1 && H[i + w] <= 0.3)) { r = 64; gg = 45; b = 28; }
+          } else if (hgt > -6) { r = 230; gg = 242; b = 235; }
+          img.data[k] = r; img.data[k + 1] = gg; img.data[k + 2] = b; img.data[k + 3] = 255;
         }
       }
-    }
-    // coast ink
-    const d = new Uint8ClampedArray(img.data);
-    for (let py = 1; py < h - 1; py++) {
-      for (let px = 1; px < w - 1; px++) {
-        const [x, z] = v.toWorld(px, py);
-        const land = t.quickHeight(x, z) > 0.3;
-        if (!land) continue;
-        const [xl] = v.toWorld(px - 1, py); const [xr] = v.toWorld(px + 1, py);
-        const [, zu] = v.toWorld(px, py - 1); const [, zd] = v.toWorld(px, py + 1);
-        if (t.quickHeight(xl, z) <= 0.3 || t.quickHeight(xr, z) <= 0.3 || t.quickHeight(x, zu) <= 0.3 || t.quickHeight(x, zd) <= 0.3) {
-          const k = (py * w + px) * 4;
-          img.data[k] = 58; img.data[k + 1] = 38; img.data[k + 2] = 20;
-        }
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    // rhumb lines from a compass rose (portolan style)
-    const [rx, ry] = v.toPx(...at(-70.6, 25.2));
-    ctx.strokeStyle = 'rgba(90,60,30,0.22)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i < 32; i++) {
-      const a = (i / 32) * Math.PI * 2;
-      ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx + Math.cos(a) * w * 2, ry + Math.sin(a) * w * 2); ctx.stroke();
-    }
-    drawRose(ctx, rx, ry, Math.min(w, h) * 0.09);
-    // island names
-    ctx.fillStyle = 'rgba(58,38,20,0.9)';
-    ctx.textAlign = 'center';
-    for (const is of ISLANDS) {
-      if (is.minor) continue;
-      const [px, py] = v.toPx(is.x, is.z);
-      const big = is.rx > 2500;
-      ctx.font = `italic ${big ? 26 : 16}px "IM Fell English", serif`;
-      ctx.fillText(is.name, px, py + (big ? 8 : is.rz * v.s + 16));
-    }
-    ctx.font = `italic 30px "IM Fell English", serif`;
-    ctx.fillStyle = 'rgba(58,38,20,0.55)';
-    ctx.fillText('The Gulf of Florida', ...v.toPx(...at(-80.6, 23.9)));
-    ctx.fillText('Mar del Norte', ...v.toPx(...at(-72.5, 26.8)));
-    ctx.fillText('The Caribbean Sea', ...v.toPx(...at(-80.5, 17.4)));
-    ctx.font = `${Math.round(w * 0.034)}px "Pirata One", serif`;
-    ctx.fillStyle = 'rgba(58,38,20,0.85)';
-    ctx.textAlign = 'right';
-    ctx.fillText('A New Chart of the West Indies', w - 30, h - 58);
-    ctx.font = `italic ${Math.round(w * 0.014)}px "IM Fell English", serif`;
-    ctx.fillText('drawn from the latest observations · MDCCXVI', w - 32, h - 30);
-    this.chartView_ = v;
-    return c;
+      ctx.putImageData(img, 0, 0);
+      return { c, s: v.s, ox: v.ox, oz: v.oz };
+    };
+    const rows = (a, b) => { for (let py = a; py < b; py++) for (let px = 0; px < w; px++) { const [x, z] = v.toWorld(px + 0.5, py + 0.5); H[py * w + px] = heightAt(x, z); } };
+    if (!done) { rows(0, h); return finish(); }
+    let y = 0;
+    const slice = () => {
+      if (this._chartJob !== job) return;
+      const t0 = performance.now();
+      while (y < h && performance.now() - t0 < 24) { rows(y, Math.min(h, y + 8)); y += 8; }
+      if (y < h) setTimeout(slice, 0); else done(finish());
+    };
+    slice();
+    return null;
   }
 
   drawChart() {
     const cv = $('chart-canvas');
     const ctx = cv.getContext('2d');
-    const g = this.game;
-    ctx.drawImage(this.chartBase, 0, 0);
-    const v = this.chartView(cv.width, cv.height);
-    const s = g.state;
+    const g = this.game, s = g.state;
+    const W = cv.width, Hh = cv.height;
+    const v = this.chartView(W, Hh);
+    const k = v.k;
+    // paper, then the land layers mapped into this view
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.chartPaper, 0, 0);
+    const land = this._chartLand || (this._chartLand = document.createElement('canvas'));
+    if (land.width !== W || land.height !== Hh) { land.width = W; land.height = Hh; }
+    const lc = land.getContext('2d');
+    lc.setTransform(1, 0, 0, 1, 0, 0);
+    lc.fillStyle = '#fff'; lc.fillRect(0, 0, W, Hh);
+    lc.imageSmoothingEnabled = true;
+    for (const L of [this.chartBase, this.chartDetail]) {
+      if (!L) continue;
+      const m = v.s / L.s;
+      lc.setTransform(m, 0, 0, m, v.ox - L.ox * m, v.oz - L.oz * m);
+      lc.drawImage(L.c, 0, 0);
+    }
+    lc.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.drawImage(land, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    const fs = Math.min(1.5, 1 + Math.log2(k) * 0.12); // (lettering grows a little as you close in)
+    // the graticule: a line each degree, numbered round the margin
+    ctx.strokeStyle = 'rgba(90,60,30,0.2)'; ctx.lineWidth = 1; ctx.setLineDash([2, 6]);
+    ctx.font = `italic ${Math.round(13 * fs)}px "IM Fell English", serif`; ctx.fillStyle = 'rgba(58,38,20,0.7)';
+    const step = [0.25, 0.5, 1, 2].find((d) => at(LON0 + d, LAT0)[0] * v.s - at(LON0, LAT0)[0] * v.s > 120 * fs) || 2;
+    const ll0 = lonLat(...v.toWorld(0, Hh)), ll1 = lonLat(...v.toWorld(W, 0));
+    const deg = (d, pos, neg) => { const a = Math.abs(d), dd = Math.floor(a + 1e-6), mm = Math.round((a - dd) * 60); return `${dd}°${mm ? ` ${mm}′` : ''} ${d >= 0 ? pos : neg}`; };
+    for (let lon = Math.ceil(ll0.lon / step) * step; lon < ll1.lon; lon += step) {
+      const [px] = v.toPx(...at(lon, LAT0));
+      ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, Hh); ctx.stroke();
+      ctx.textAlign = 'center'; ctx.fillText(deg(lon, 'E', 'W'), px, 18 * fs);
+    }
+    for (let lat = Math.ceil(ll0.lat / step) * step; lat < ll1.lat; lat += step) {
+      const [, py] = v.toPx(...at(LON0, lat));
+      ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+      ctx.textAlign = 'left'; ctx.fillText(deg(lat, 'N', 'S'), 8, py - 4);
+    }
+    ctx.setLineDash([]);
+    // rhumb lines from a compass rose (portolan style)
+    const [rx, ry] = v.toPx(...at(-70.6, 25.2));
+    ctx.strokeStyle = 'rgba(90,60,30,0.2)';
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * Math.PI * 2;
+      ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx + Math.cos(a) * W * 4 * k, ry + Math.sin(a) * W * 4 * k); ctx.stroke();
+    }
+    drawRose(ctx, rx, ry, Math.min(W, Hh) * 0.09 * Math.min(2, Math.sqrt(k)));
+    const on = (px, py, m = 80) => px > -m && py > -m && px < W + m && py < Hh + m;
+    const label = (txt, lon, lat, o = {}) => {
+      if (k < (o.min || 1) || (o.max && k > o.max)) return;
+      const [px, py] = v.toPx(...at(lon, lat));
+      if (!on(px, py, 300)) return;
+      ctx.save();
+      ctx.translate(px, py);
+      if (o.rot) ctx.rotate(o.rot);
+      ctx.font = `${o.style || 'italic'} ${Math.round((o.size || 16) * fs)}px "${o.face || 'IM Fell English'}", serif`;
+      ctx.fillStyle = o.color || 'rgba(58,38,20,0.75)';
+      ctx.textAlign = o.align || 'center';
+      if (o.spaced) ctx.letterSpacing = `${Math.round(o.spaced * fs)}px`;
+      if (o.dot) {
+        ctx.beginPath(); ctx.arc(0, 0, o.dot, 0, Math.PI * 2);
+        if (o.ring) { ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1.5; ctx.stroke(); } else ctx.fill();
+      }
+      const lines = txt.split('\n');
+      lines.forEach((ln, i) => ctx.fillText(ln, o.dx ?? (o.dot ? 8 : 0), (o.dy ?? (o.dot ? 5 : 0)) + (i - (lines.length - 1) / 2) * (o.size || 16) * fs * 1.15));
+      ctx.restore();
+    };
+    // seas and gulfs
+    for (const [t, lon, lat, rot] of CHART_SEAS) label(t, lon, lat, { size: 30, color: 'rgba(58,38,20,0.5)', spaced: 3, rot });
+    // channels, passages and sounds
+    for (const [t, lon, lat, rot, min] of CHART_PASSAGES) label(t, lon, lat, { size: 17, color: 'rgba(40,60,90,0.75)', rot, min });
+    // banks, reefs and shoals
+    for (const [t, lon, lat, min] of CHART_BANKS) label(t, lon, lat, { size: 14, color: 'rgba(90,60,30,0.7)', min: min || 1.4 });
+    // the lands: Spanish and French Hispaniola, the Floridas
+    for (const [t, lon, lat, min] of CHART_REGIONS) label(t, lon, lat, { size: 15, style: '', face: 'IM Fell English SC', color: 'rgba(58,38,20,0.5)', spaced: 5, min });
+    // island names (little cays when close in)
+    ctx.textAlign = 'center';
+    for (const is of ISLANDS) {
+      const named = is.name && is.name !== 'cay';
+      if (!named || (is.minor && k < 2.2)) continue;
+      const [px, py] = v.toPx(is.x, is.z);
+      if (!on(px, py, 300)) continue;
+      const big = is.rx > 2500;
+      ctx.font = `italic ${Math.round((big ? 26 : is.minor ? 14 : 16) * fs)}px "IM Fell English", serif`;
+      ctx.fillStyle = 'rgba(58,38,20,0.9)';
+      ctx.fillText(is.name, px, py + (big ? 8 : is.rz * v.s + 16 * fs));
+    }
+    // capes and points
+    for (const [t, lon, lat, align] of CHART_CAPES) label(t, lon, lat, { size: 13, min: 1.7, dot: 2.5, align: align || 'left', dx: align === 'right' ? -7 : 7, dy: 4, color: 'rgba(58,38,20,0.85)' });
+    // towns and settlements you cannot (yet) put in at
+    for (const [t, lon, lat, align] of CHART_TOWNS) label(t, lon, lat, { size: 13, style: '', min: 1.9, dot: 3.5, ring: true, align: align || 'left', dx: align === 'right' ? -8 : 8, dy: 4, color: 'rgba(58,38,20,0.85)' });
     // ports
     for (const p of PORTS) {
       const town = g.towns[p.id];
       const [px, py] = v.toPx(town.coast.x, town.coast.z);
       const known = s.discovered.includes(p.id);
-      const img = new Image();
       ctx.fillStyle = known ? '#8a1d1d' : '#6a5a40';
       ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#2a1d10'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.font = `bold 20px "IM Fell English SC", serif`;
+      ctx.font = `bold ${Math.round(20 * fs)}px "IM Fell English SC", serif`;
       ctx.fillStyle = '#2a1d10';
       ctx.textAlign = 'left';
       ctx.fillText(p.name, px + 12, py - 6);
-      ctx.font = `italic 14px "IM Fell English", serif`;
-      ctx.fillText(NATIONS[p.nation].adj + (known ? '' : ' (undiscovered)'), px + 12, py + 12);
+      ctx.font = `italic ${Math.round(14 * fs)}px "IM Fell English", serif`;
+      ctx.fillText(NATIONS[p.nation].adj + (known ? '' : ' (undiscovered)'), px + 12, py + 12 * fs);
       const fi = this._flagImgs || (this._flagImgs = {});
       if (!fi[p.nation]) { fi[p.nation] = new Image(); fi[p.nation].src = flagImg(NATIONS[p.nation].flag); fi[p.nation].onload = () => this.top() === 'chart' && this.drawChart(); }
       if (fi[p.nation].complete) ctx.drawImage(fi[p.nation], px - 12, py - 30, 24, 15);
     }
+    const note = (txt, x, z, o = {}) => {
+      const [px, py] = v.toPx(x, z);
+      if (!on(px, py)) return;
+      ctx.font = `${o.style ?? 'italic'} ${Math.round((o.size || 15) * fs)}px "IM Fell English", serif`;
+      ctx.fillStyle = o.color || '#2a1d10'; ctx.textAlign = o.align || 'left';
+      ctx.fillText(txt, px + (o.dx ?? 14), py + (o.dy ?? 5));
+    };
     // salvage camp
-    if (g.salvage) {
-      const [px, py] = v.toPx(g.salvage.coast3.x, g.salvage.coast3.z);
-      ctx.fillStyle = '#2a1d10'; ctx.font = `italic 15px "IM Fell English", serif`; ctx.textAlign = 'right';
-      ctx.fillText('Wrecks of the 1715 Flota ✝', px - 10, py);
+    if (g.salvage) note('Wrecks of the 1715 Flota ✝', g.salvage.coast3.x, g.salvage.coast3.z, { align: 'right', dx: -10, dy: 0 });
+    // wrecks your lookouts have marked
+    for (const wr of g.seaside?.wrecks || []) {
+      if (!wr.seen) continue;
+      note('✝', wr.x, wr.z, { style: 'bold', size: 18, dx: -5, dy: 6, align: 'left' });
+      if (k >= 1.8) note(`wreck${wr.chests?.some((c) => !c.taken) ? ' (unsearched)' : ''}`, wr.x, wr.z, { size: 12, dx: 10, dy: 5 });
     }
     // treasure
     for (const m of s.treasureMaps) {
@@ -690,6 +856,17 @@ export class UI {
       const [px, py] = v.toPx(m.x, m.z);
       ctx.strokeStyle = '#a01818'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.moveTo(px - 9, py - 9); ctx.lineTo(px + 9, py + 9); ctx.moveTo(px + 9, py - 9); ctx.lineTo(px - 9, py + 9); ctx.stroke();
+      note('Treasure', m.x, m.z, { color: '#a01818', size: 14 });
+    }
+    // contracts: the cove of a smuggling run, a ship you are hunting
+    for (const c of s.contracts) {
+      const smug = c.type === 'smuggle';
+      const at3 = smug ? c.marker : c.target?.position || c.marker;
+      if (!at3) continue;
+      const [px, py] = v.toPx(at3.x, at3.z);
+      ctx.strokeStyle = '#7a3a8a'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.rect(px - 7, py - 7, 14, 14); ctx.stroke();
+      note(smug ? 'Smugglers’ cove' : c.title || 'Contract', at3.x, at3.z, { color: '#5a2a6a', size: 14 });
     }
     // objective
     const mk = g.missions.marker();
@@ -698,6 +875,8 @@ export class UI {
       ctx.strokeStyle = '#d89a1a'; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(px, py, 14, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fillStyle = '#d89a1a'; ctx.fill();
+      const ot = g.missions.objectiveText();
+      if (ot && g.missions.stage) note(ot.length > 48 ? ot.slice(0, 46) + '…' : ot, mk.x, mk.z, { color: '#8a5a0a', size: 14, dx: 18, dy: -14 });
     }
     // waypoint
     if (s.waypoint) {
@@ -708,8 +887,24 @@ export class UI {
       const [fx, fy] = v.toPx(g.focus.x, g.focus.z);
       ctx.setLineDash([8, 8]); ctx.strokeStyle = 'rgba(42,90,138,0.7)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(wx, wy); ctx.stroke(); ctx.setLineDash([]);
+      const d = Math.hypot(s.waypoint.x - g.focus.x, s.waypoint.z - g.focus.z) * GEO_SCALE / 5556;
+      note(`${d < 10 ? d.toFixed(1) : Math.round(d)} leagues`, s.waypoint.x, s.waypoint.z, { color: '#2a5a8a', size: 13, dx: 18, dy: 18 });
     }
-    // player
+    // the squadron
+    const ship = (x, z, hd, fill, name) => {
+      const [px, py] = v.toPx(x, z);
+      if (!on(px, py)) return;
+      ctx.save(); ctx.translate(px, py); ctx.rotate(-hd);
+      ctx.fillStyle = fill; ctx.strokeStyle = '#f3e7c4'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(6, 7); ctx.lineTo(0, 3); ctx.lineTo(-6, 7); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      if (name && k >= 1.5) note(name, x, z, { color: '#1f4a7a', size: 13, dx: 10, dy: -8 });
+    };
+    for (const e of g.fleet?.list || []) {
+      const sh = g.fleet.ships.get(e.id);
+      if (sh) ship(sh.position.x, sh.position.z, sh.heading, '#2a5a8a', e.name);
+    }
+    // you
     const f = g.focus;
     const [px, py] = v.toPx(f.x, f.z);
     ctx.save();
@@ -719,7 +914,25 @@ export class UI {
     ctx.fillStyle = '#111'; ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(8, 10); ctx.lineTo(0, 5); ctx.lineTo(-8, 10); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.restore();
-    $('chart-info').textContent = (g.canFastTravel() ? 'Click a discovered port to fast-travel there. ' : g.fastTravelBlockReason() + ' ') + 'Click the sea to plot a waypoint.';
+    if (k >= 1.5) note(s.ship.name || 'You', f.x, f.z, { style: 'bold italic', size: 14, dx: 12, dy: 18 });
+    // a scale of leagues, and the cartouche
+    {
+      const lg = 5556 / GEO_SCALE; // one sea league (three sea miles) in game metres
+      const nice = [1, 2, 5, 10, 20, 50, 100].find((n) => n * lg * v.s > W * 0.08) || 100;
+      const L = nice * lg * v.s, x0 = W / 2 - L / 2, y0 = 58 * fs;
+      ctx.fillStyle = '#2a1d10'; ctx.strokeStyle = '#2a1d10'; ctx.lineWidth = 1.5;
+      for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.rect(x0 + (L / 4) * i, y0 - 5, L / 4, 6); i % 2 ? ctx.stroke() : ctx.fill(); }
+      ctx.strokeRect(x0, y0 - 5, L, 6);
+      ctx.font = `italic ${Math.round(13 * fs)}px "IM Fell English", serif`; ctx.textAlign = 'center';
+      ctx.fillText(`A scale of ${nice} sea league${nice > 1 ? 's' : ''}`, W / 2, y0 - 12);
+    }
+    ctx.font = `${Math.round(W * 0.034)}px "Pirata One", serif`;
+    ctx.fillStyle = 'rgba(58,38,20,0.85)';
+    ctx.textAlign = 'right';
+    ctx.fillText('A New Chart of the West Indies', W - 30, Hh - 58);
+    ctx.font = `italic ${Math.round(W * 0.014)}px "IM Fell English", serif`;
+    ctx.fillText('drawn from the latest observations · MDCCXVI', W - 32, Hh - 30);
+    $('chart-info').textContent = (g.canFastTravel() ? 'Click a discovered port to fast-travel there. ' : g.fastTravelBlockReason() + ' ') + 'Click the sea to plot a waypoint · wheel to zoom, drag to pan.';
   }
 
   chartHit(e) {
@@ -743,6 +956,7 @@ export class UI {
   }
 
   chartClick(e) {
+    if (this.chartDragged) { this.chartDragged = false; return; } // (the end of a drag, not a click)
     const p = this.chartHit(e);
     const g = this.game;
     if (!p) {
@@ -1103,6 +1317,84 @@ function windForce(s) {
   if (s < 1.25) return '· strong breeze';
   return '· gale';
 }
+
+// Names on the chart, as a chart-maker of 1716 would have written them: [name, lon, lat, rotation, least zoom]
+const CHART_SEAS = [
+  ['The Gulf of Florida', -81.3, 24.15],
+  ['Mar del Norte', -72.5, 26.8],
+  ['The Caribbean Sea', -80.5, 17.4],
+  ['Golfo de México', -84.2, 25.7],
+];
+const CHART_PASSAGES = [
+  ['New Bahama Channel', -79.72, 26.6, -Math.PI / 2],
+  ['Old Bahama Channel', -78.2, 22.72, 0.3],
+  ['Windward Passage', -73.85, 19.9, -1.2],
+  ['N.W. Providence Channel', -78.65, 25.98, 0.15, 1.3],
+  ['N.E. Providence Channel', -77.0, 25.72, 0.1, 1.3],
+  ['Tongue of the Ocean', -77.45, 24.35, -1.25, 1.3],
+  ['Exuma Sound', -76.1, 24.45, -0.6, 1.3],
+  ['Crooked Island Passage', -74.75, 22.95, -1.15, 1.3],
+  ['Caicos Passage', -72.55, 22.15, -0.5, 1.6],
+  ['Jamaica Channel', -75.3, 18.25, -0.35],
+  ['Golfe de la Gonâve', -73.0, 19.3, 0, 1.6],
+  ['Golfo de Batabanó', -82.4, 22.3, 0, 1.4],
+  ['Golfo de Guacanayabo', -77.45, 20.55, -0.5, 2],
+];
+const CHART_BANKS = [
+  ['The Great Bahama Bank', -78.55, 23.65, 1],
+  ['Little Bahama Bank', -78.3, 27.05],
+  ['Cay Sal Bank', -80.05, 23.72],
+  ['Los Mártires', -80.9, 24.68],
+  ['Jardines de la Reina', -78.75, 20.7],
+  ['Jardines del Rey', -78.3, 22.4, 2],
+  ['Los Colorados', -84.0, 22.75, 2],
+  ['The Abrojos, or Silver Bank', -69.9, 20.3],
+  ['Mouchoir Bank', -70.9, 21.05],
+  ['Turks Islands', -71.15, 21.45],
+  ['Ragged Islands', -75.7, 22.25, 1.8],
+  ['Hogsty Reef', -73.85, 21.68, 2.5],
+  ['Pedro Bank', -77.8, 17.05],
+  ['Serranilla Bank', -79.85, 16.85, 1.8],
+];
+const CHART_REGIONS = [
+  ['Saint-Domingue', -72.75, 18.25, 1],
+  ['Santo Domingo', -70.2, 18.95, 1],
+  ['La Florida', -81.5, 28.6, 1],
+];
+const CHART_CAPES = [
+  ['C. de S. Antonio', -84.95, 21.86],
+  ['C. de Corrientes', -84.5, 21.75, 'right'],
+  ['C. de Cruz', -77.73, 19.84, 'right'],
+  ['Punta de Maisí', -74.13, 20.24],
+  ['Cape Florida', -80.16, 25.67],
+  ['C. Cañaveral', -80.6, 28.45],
+  ['Cap Tiburon', -74.45, 18.33, 'right'],
+  ['Môle St-Nicolas', -73.4, 19.8, 'right'],
+  ['C. Beata', -71.42, 17.6],
+  ['Point Morant', -76.19, 17.92],
+  ['Negril Point', -78.37, 18.3, 'right'],
+  ['C. Engaño', -68.32, 18.6, 'right'],
+  ['Hole in the Wall', -77.2, 25.85],
+  ['C. San Román', -80.1, 21.82, 'right'],
+];
+const CHART_TOWNS = [
+  ['San Agustín', -81.31, 29.88],
+  ['Santiago de Cuba', -75.83, 20.02],
+  ['Puerto Príncipe', -77.92, 21.38],
+  ['Trinidad', -79.98, 21.8],
+  ['Matanzas', -81.58, 23.05],
+  ['Baracoa', -74.5, 20.35],
+  ['Bayamo', -76.64, 20.38],
+  ['Sancti Spíritus', -79.44, 21.93],
+  ['Cap-François', -72.2, 19.76],
+  ['Léogâne', -72.63, 18.51],
+  ['Petit-Goâve', -72.86, 18.43, 'right'],
+  ['Santo Domingo', -69.9, 18.47],
+  ['Santiago de los Caballeros', -70.7, 19.45],
+  ['Spanish Town', -76.96, 18.0, 'right'],
+  ['Kingston', -76.79, 17.99],
+  ['Harbour Island', -76.64, 25.5],
+];
 
 function drawRose(ctx, x, y, r) {
   ctx.save();

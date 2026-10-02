@@ -41,7 +41,16 @@ export function buildStory(game) {
           marker: () => game.missionTarget?.position,
           onEvent: (e) => (e.type === 'captured' || e.type === 'sunk') && e.ship === game.missionTarget,
         },
-        { text: 'Return to Nassau with your prize', marker: () => nassau().berth && V(nassau().berth.x, nassau().berth.z), onEvent: (e) => e.type === 'dock' && e.port === 'nassau' },
+        {
+          // (the fluyt is taken or sunk: all that's left is to sail home and report; the plunder in your hold sells to the fence there)
+          text: 'Sail back to Nassau and dock in the harbour [F] to report to Hornigold',
+          onStart: () => {
+            const st = game.missions.story.find((x) => x.id === 'm2').stages[2];
+            const laden = (game.state.ship.cargo.cloth || 0) > 0; // (the fluyt's linen, taken out of her)
+            st.text = laden ? 'Sail back to Nassau with the plunder in your hold and dock in the harbour [F] to report to Hornigold'
+              : 'Sail back to Nassau and dock in the harbour [F] to report to Hornigold';
+          },
+          marker: () => nassau().berth && V(nassau().berth.x, nassau().berth.z), onEvent: (e) => e.type === 'dock' && e.port === 'nassau' },
       ],
       reward: { gold: 300, renown: 4 },
       outro: ['Benjamin Hornigold', 'A clean job. Sell what you took to the fence — nobody in Nassau asks where a bolt of Dutch linen came from.'],
@@ -216,8 +225,8 @@ export class Missions {
       m.stage = 0;
       g.save();
     } else {
-      g.ui.toast('Objective: ' + cur.stages[m.stage].text, 'objective');
       this.start();
+      g.ui.toast('Objective: ' + cur.stages[m.stage].text, 'objective');
     }
     g.ui.refreshObjective();
   }
